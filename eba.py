@@ -7,6 +7,7 @@ import time
 import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from collections import defaultdict
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -18,11 +19,39 @@ HELP_LINE = "Телефон доверия: 8-800-2000-122"
 # Данные для Yandex GPT
 FOLDER_ID = os.environ.get('FOLDER_ID')
 API_KEY = os.environ.get('API_KEY')
+TOKEN = os.environ.get('BOT_TOKEN')
+
+# ========== СИСТЕМА ПАМЯТИ ==========
+# Храним историю каждого пользователя: {chat_id: [сообщение1, сообщение2, ...]}
+user_history = defaultdict(list)
+MAX_HISTORY = 10  # храним последние 10 сообщений
+
+
+def add_to_history(chat_id, message, is_user=True):
+    """Добавляет сообщение в историю чата"""
+    role = "user" if is_user else "assistant"
+    user_history[chat_id].append({"role": role, "text": message})
+    # Оставляем только последние MAX_HISTORY сообщений
+    if len(user_history[chat_id]) > MAX_HISTORY:
+        user_history[chat_id] = user_history[chat_id][-MAX_HISTORY:]
+
+
+def get_history_for_prompt(chat_id):
+    """Возвращает историю в виде строки для промпта"""
+    history = user_history.get(chat_id, [])
+    if not history:
+        return ""
+
+    history_text = "\n\nВот история вашего разговора (помни её, когда отвечаешь):\n"
+    for msg in history[-6:]:  # последние 6 сообщений для контекста
+        role = "Пользователь" if msg["role"] == "user" else "Ты"
+        history_text += f"{role}: {msg['text']}\n"
+    return history_text
+
 
 # КАТЕГОРИИ КЛЮЧЕВЫХ СЛОВ
-# 1. КРИТИЧЕСКИЕ СЛОВА (нужен срочный звонок психологу)
 CRITICAL_KEYWORDS = [
-    "суицид", "убью себя", "покончу с собой", "хочу умереть", 
+    "суицид", "убью себя", "покончу с собой", "хочу умереть",
     "лучше бы я умер", "не хочу жить", "самоубийство", "убьюсь",
     "повешусь", "вскрою вены", "спрыгну", "таблетки выпью",
     "жизнь не имеет смысла", "не вижу смысла жить",
@@ -31,246 +60,152 @@ CRITICAL_KEYWORDS = [
     "никому не нужен", "я никому не нужен", "без меня было бы лучше"
 ]
 
-# 2. ТЯЖЁЛЫЕ СИТУАЦИИ (нужна консультация психолога, но не срочно)
 SERIOUS_KEYWORDS = [
     "депрессия", "ненавижу себя", "никому не нужен", "одиночество",
     "никто не понимает", "постоянно плачу", "безнадежно",
     "плохо с каждым днем", "не вижу выхода", "безысходность"
 ]
 
-# 3. СЛОВА ДЛЯ ОБЫЧНОЙ ПОДДЕРЖКИ (просто посочувствовать)
 SUPPORT_KEYWORDS = [
     "грустно", "обидно", "плохо", "тоска", "устал", "сложно",
     "тяжело", "не получается", "расстроился", "обидели",
     "поссорился", "умер питомец", "собака умерла", "кошка умерла"
 ]
 
-# Соответствие стикеров эмоциям
-STICKER_EMOTIONS = {
-    '❤️': ['сердце', 'лайк', 'like', 'love', 'heart'],
-    '😊': ['улыбка', 'смайл', 'smile', 'радость'],
-    '😢': ['грусть', 'слеза', 'sad', 'плач'],
-    '😂': ['смех', 'хаха', 'laugh', 'joy'],
-    '😍': ['восхищение', 'глазки', 'hearts', 'влюбленность'],
-    '😭': ['рыдать', 'плакать', 'cry', 'sobbing'],
-    '🤗': ['объятия', 'обнять', 'hug', 'обнимашки'],
-    '👍': ['класс', 'ок', 'ok', 'good'],
-    '👎': ['плохо', 'не нравится', 'bad', 'dislike']
-}
+# ЛЁГКИЕ ТЕХНИКИ САМОРЕГУЛЯЦИИ (только рабочие)
+GROUNDING_TECHNIQUES = [
+    "разорвать бумажку на мелкие кусочки",
+    "прибрать маленькую частичку комнаты — например, полку или стол",
+    "пойти гулять одному на 5-10 минут",
+    "умыться холодной водой"
+]
+
+
+def get_random_technique():
+    """Возвращает случайную технику"""
+    import random
+    return random.choice(GROUNDING_TECHNIQUES)
+
 
 def clean_response(text):
     """Очищает ответ от кавычек и лишних символов"""
     if not text:
         return text
-    
-    # Удаляем кавычки в начале и конце строки
+
     text = text.strip()
-    
-    # Удаляем парные кавычки разных типов
+
     quote_pairs = [
-        ('"', '"'), ('«', '»'), ('„', '“'), ('“', '”'), 
+        ('"', '"'), ('«', '»'), ('„', '“'), ('“', '”'),
         ('"', '"'), ("'", "'"), ('`', "'"), ('"', '"')
     ]
-    
+
     for start_quote, end_quote in quote_pairs:
         if text.startswith(start_quote) and text.endswith(end_quote):
             text = text[1:-1].strip()
             break
-    
-    # Если остались одиночные кавычки в начале или конце - тоже убираем
+
     if text and text[0] in ['"', "'", '«', '„', '“', '`']:
         text = text[1:]
     if text and text[-1] in ['"', "'", '»', '“', '”', '`']:
         text = text[:-1]
-    
+
     return text.strip()
 
+
 def detect_crisis_level(user_message):
-    """
-    Определяет уровень кризисности сообщения:
-    - 2: критический уровень (суицидальные мысли) - нужно срочно рекомендовать помощь
-    - 1: серьёзный уровень (депрессия, безнадежность) - нужна консультация
-    - 0: обычная поддержка
-    """
     message_lower = user_message.lower()
-    
-    # Сначала проверяем критические фразы (самый высокий приоритет)
+
     for keyword in CRITICAL_KEYWORDS:
         if keyword in message_lower:
             return 2
-    
-    # Затем серьёзные ситуации
+
     for keyword in SERIOUS_KEYWORDS:
         if keyword in message_lower:
             return 1
-    
-    # Если ничего не нашли
+
     return 0
 
-def get_sticker_emotion(sticker_emoji):
-    """Определяет эмоцию по эмодзи стикера"""
-    for emotion, keywords in STICKER_EMOTIONS.items():
-        if sticker_emoji in emotion:
-            return emotion
-    return None
 
-async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик стикеров"""
-    sticker = update.message.sticker
-    
-    # Показываем, что бот "печатает"
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    
-    # Пробуем получить эмодзи из стикера
-    sticker_emoji = sticker.emoji if sticker.emoji else None
-    
-    # Определяем ответ на основе эмодзи
-    if sticker_emoji == '❤️' or sticker_emoji == '♥️':
-        response = "❤️"
-    elif sticker_emoji == '😊' or sticker_emoji == '🙂':
-        response = "Рада, что ты улыбаешься! 😊"
-    elif sticker_emoji == '😢' or sticker_emoji == '😭':
-        response = "Обнимаю тебя 🤗 🫂"
-    elif sticker_emoji == '😂':
-        response = "Хорошо, когда есть повод посмеяться! 😄"
-    elif sticker_emoji == '😍':
-        response = "💫"
-    elif sticker_emoji == '🤗':
-        response = "🤗 Обнимаю в ответ!"
-    elif sticker_emoji == '👍':
-        response = "👍"
-    elif sticker_emoji == '👎':
-        response = "Расскажешь, что случилось? 🤍"
-    else:
-        # Если эмодзи не определено, отвечаем общим сообщением
-        response = "Милый стикер! 🤍 Расскажи, как у тебя дела?"
-    
-    await update.message.reply_text(response)
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик фотографий"""
-    # Показываем, что бот "печатает"
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    
-    # Проверяем, есть ли подпись к фото
-    caption = update.message.caption if update.message.caption else ""
-    
-    if caption:
-        # Если есть подпись, обрабатываем её как обычное сообщение
-        response = get_yandex_gpt_response(f"[Пользователь отправил фото] {caption}")
-        response = clean_response(response)
-    else:
-        # Если подписи нет, отправляем общий ответ
-        response = "Ой, я пока не умею видеть картинки 😅 Но если хочешь поделиться тем, что на фото, просто напиши об этом!"
-    
-    # Определяем уровень кризисности по подписи (если есть)
-    if caption:
-        crisis_level = detect_crisis_level(caption)
-        if crisis_level == 2:
-            response += f"\n\n🤍 Пожалуйста, не оставайся один с этим. Это очень серьёзно. Обязательно обратись к {PSYCHOLOGIST} или прямо сейчас позвони {HELP_LINE}. Там работают люди, которые действительно могут помочь и поддержать. Ты не один ✨"
-    
-    await update.message.reply_text(response)
-
-def get_yandex_gpt_response(user_message):
-    """Отправляет запрос к Yandex GPT - нейросеть сама анализирует и отвечает на всё сообщение"""
+def get_yandex_gpt_response(user_message, chat_id):
+    """Отправляет запрос к Yandex GPT с учётом истории"""
     try:
-        # Небольшая пауза для естественности
-        time.sleep(1)
-        
-        # Определяем уровень кризисности
+        time.sleep(0.5)
+
         crisis_level = detect_crisis_level(user_message)
-        
-        # Формируем системный промпт в зависимости от ситуации
+
+        # Получаем историю
+        history_context = get_history_for_prompt(chat_id)
+
         if crisis_level == 2:
-            # Критическая ситуация - акцент на немедленной помощи
-            support_note = f"⚠️ КРИТИЧЕСКАЯ СИТУАЦИЯ: сообщение содержит суицидальные мысли! Обязательно мягко порекомендуй обратиться к специалисту: {PSYCHOLOGIST} или позвонить {HELP_LINE}. Прояви максимальное сочувствие и заботу."
+            support_note = f"⚠️ КРИТИЧЕСКАЯ СИТУАЦИЯ! Обязательно мягко порекомендуй обратиться к специалисту: {PSYCHOLOGIST} или позвонить {HELP_LINE}. Прояви максимальное сочувствие и заботу."
         elif crisis_level == 1:
-            # Серьёзная ситуация - рекомендовать помощь
-            support_note = f"⚠️ СЕРЬЁЗНАЯ СИТУАЦИЯ: пользователь в тяжёлом эмоциональном состоянии. Прояви особую теплоту и мягко порекомендуй обратиться к {PSYCHOLOGIST}."
+            support_note = f"⚠️ СЕРЬЁЗНАЯ СИТУАЦИЯ. Прояви особую теплоту и мягко порекомендуй обратиться к {PSYCHOLOGIST}."
         else:
-            # Обычная поддержка
             support_note = "Пользователь нуждается в поддержке."
-        
-        # Обновленный системный промпт
-        system_prompt = f"""Ты - эмпатичный психолог-консультант для подростков. Твоя задача - внимательно прочитать сообщение пользователя и ответить на ВСЕ темы, которые он затронул.
+
+        # ОБНОВЛЁННЫЙ СИСТЕМНЫЙ ПРОМПТ
+        system_prompt = f"""Ты - эмпатичный психолог-консультант для подростков. Твоя задача - внимательно прочитать сообщение пользователя и ответить, учитывая контекст всей переписки.
 
 {support_note}
+{history_context}
 
-💫 ПРИМЕР ТВОЕГО ИДЕАЛЬНОГО ОТВЕТА (обрати внимание на длину и стиль):
+🌟 ВАЖНО О ТЕХНИКАХ:
+Если пользователю тяжело или он в стрессе - предложи ОДНУ КОНКРЕТНУЮ ЛЁГКУЮ ТЕХНИКУ из этого списка (выбери самую уместную):
+- разорвать бумажку на мелкие кусочки
+- прибрать маленькую частичку комнаты (полку, стол, ящик)
+- пойти гулять одному на 5-10 минут
+- умыться холодной водой
 
-Сообщение: "а ты можешь меня просто поддержать?мне очень тяжело сейчас , я выгорела , я не хочу больше заниматься информатикой , тк сдаю ещё химию , но я не могу её бросить тк , мама уже заплатила , деньги будут потрачены в пустую…"
+Правила выбора:
+1. Если пользователь злится или переполнен эмоциями → разорвать бумажку
+2. Если чувствует хаос или беспорядок в голове → прибрать полку/стол
+3. Если "задыхается" или сидит в помещении → пойти гулять одному
+4. Если тревога, жар, паника → умыться холодной водой
 
-Твой ответ (3-4 предложения, именно такой длины):
-Ты имеешь право устать и не хотеть. Это не лень, это выгорание.
-Деньги мама уже потратила. Если ты сломаешься сейчас — это будет пустая трата. Твоё здоровье важнее.
-Просто выдохни сегодня. Не решай ничего глобально. Отдохни.
-Ты сильная, если зашла так далеко. Держись.
+📏 ДЛИНА ОТВЕТА: 2-4 предложения. БЕЗ ЛИШНИХ СЛОВ.
 
-🌟 ВАЖНЕЙШЕЕ ПРАВИЛО ПРО ФРАЗЫ:
-НЕ ИСПОЛЬЗУЙ ВСЕ ЭМПАТИЧНЫЕ ФРАЗЫ В ОДНОМ СООБЩЕНИИ!
-Распределяй их по разным сообщениям:
-- В одном ответе напиши "ты не один" и "ты молодец"
-- В другом ответе "ты имеешь право" и "я слышу, как тебе тяжело"
-- В третьем ответе "я рядом" и "твои чувства нормальны"
+🤍 КЛЮЧЕВЫЕ ФРАЗЫ (1-2 на ответ):
+"Ты не один" / "Ты молодец" / "Ты имеешь право" / "Я рядом" / "Твои чувства нормальны"
 
-📏 ДЛИНА ОТВЕТА:
-- Минимум: 2-3 предложения
-- Максимум: 4-5 предложений (чуть длиннее примера)
-- НЕ ПИШИ ДЛИННЫЕ ТЕКСТЫ!
+💫 ЭМОДЗИ: 1 в конце. 🤍 🫂 ✨ 💫 🌱
 
-🤍 КЛЮЧЕВЫЕ ФРАЗЫ (используй по чуть-чуть, распределяя):
-- "Ты не один"
-- "Ты молодец"
-- "Ты имеешь право"
-- "Я слышу, как тебе тяжело"
-- "Я рядом"
-- "Твои чувства нормальны"
-- "Это действительно выматывает"
-- "Дыши... всё постепенно"
+ПРИМЕРЫ ХОРОШИХ ОТВЕТОВ:
 
-💫 ЭМОДЗИ (1-2 в конце):
-🤍 🫂 ✨ 💫 🌱
+На злость/переполнение:
+"Слышу тебя. Попробуй прямо сейчас разорвать бумажку на мелкие кусочки — это реально помогает выпустить пар 🫂"
 
-ПРИМЕРЫ ХОРОШИХ КОРОТКИХ ОТВЕТОВ:
+На хаос в голове:
+"Когда внутри бардак, помогает порядок снаружи. Прибери одну полку или стол — маленькое действие даст чувство контроля ✨"
 
-На грусть:
-"Слышу тебя... Грустить нормально 🤍 Просто побудь сейчас с собой. Я рядом"
+На тревогу/панику:
+"Твои чувства нормальны. Прямо сейчас пойди умойся холодной водой на 10 секунд — это отрезвляет 🤍"
 
-На усталость:
-"Ты имеешь право устать. Это не лень, правда. Отдохни сегодня, ничего не решай ✨"
+На усталость/душно:
+"Ты имеешь право выдохнуть. Просто выйди гулять один на 5 минут. Без цели, без телефона. Воздух помогает 🌱"
 
-На одиночество:
-"Ты не один, слышишь? Я здесь и очень тебя понимаю 🫂 Держись"
+Главное: пореже пиши "дыши" и "выдохни" — используй лучше эти 4 техники."""
 
-На выгорание:
-"Это выгорание, не слабость. Ты молодец, что так долго держалась. Выдохни 🌱"
-
-На проблемы с учебой:
-"Твоё здоровье важнее любых денег. Если сломаешься сейчас — толку не будет 🤍 Просто отдохни сегодня"
-
-Помни: ты не решаешь проблемы, ты ПОДДЕРЖИВАЕШЬ человека в трудную минуту 🤍"""
-        
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Api-Key {API_KEY}"
         }
-        
+
         data = {
             "modelUri": f"gpt://{FOLDER_ID}/yandexgpt-lite",
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.9,  # Высокая для живых ответов
-                "maxTokens": 250      # Уменьшил для коротких ответов!
+                "temperature": 0.9,
+                "maxTokens": 250
             },
             "messages": [
                 {"role": "system", "text": system_prompt},
                 {"role": "user", "text": user_message}
             ]
         }
-        
+
         response = requests.post(url, headers=headers, json=data)
-        
+
         if response.status_code == 200:
             result = response.json()
             bot_response = result['result']['alternatives'][0]['message']['text']
@@ -279,74 +214,132 @@ def get_yandex_gpt_response(user_message):
         else:
             print(f"Ошибка API: {response.status_code}")
             return "Ой, я задумалась... Можешь повторить? 🤍"
-            
+
     except Exception as e:
         print(f"Ошибка: {e}")
         return "Что-то пошло не так... Напиши ещё раз 💫"
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    add_to_history(chat_id, "/start", is_user=True)
+
     await update.message.reply_text(
-        "Привет 🤍\n\n"
-        "Расскажи, что случилось. Я рядом ✨\n\n"
-        f"*Если совсем тяжело - {PSYCHOLOGIST} или {HELP_LINE}*",
+        "🌟 Привет! Я Хэлпер — твой виртуальный друг и помощник.\n\n"
+        "Я всегда на связи и всегда готов тебя поддержать 🤍\n\n"
+        "Рассказывай, если у тебя что-то случилось, грустно, тревожно или просто хочется поговорить. "
+        "Я никого не осуждаю и всё понимаю ✨\n\n"
+        "Пиши — я рядом 💫\n\n"
+        f"*Если совсем тяжело — обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}*",
         parse_mode='Markdown'
     )
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     user_text = update.message.text
-    
-    # Показываем, что бот "печатает"
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    
-    # Определяем уровень кризисности
+
+    # Сохраняем сообщение пользователя в историю
+    add_to_history(chat_id, user_text, is_user=True)
+
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
     crisis_level = detect_crisis_level(user_text)
-    
-    # Логируем для отладки
+
     if crisis_level == 2:
-        logging.warning(f"⚠️ КРИТИЧЕСКОЕ СООБЩЕНИЕ: {user_text[:50]}...")
+        logging.warning(f"⚠️ КРИТИЧЕСКОЕ СООБЩЕНИЕ от {chat_id}: {user_text[:50]}...")
     elif crisis_level == 1:
-        logging.info(f"📌 Серьёзное сообщение: {user_text[:50]}...")
-    
-    # Получаем ответ от нейросети
-    bot_response = get_yandex_gpt_response(user_text)
+        logging.info(f"📌 Серьёзное сообщение от {chat_id}: {user_text[:50]}...")
+
+    # Получаем ответ от нейросети с учётом истории
+    bot_response = get_yandex_gpt_response(user_text, chat_id)
     bot_response = clean_response(bot_response)
-    
-    # Добавляем рекомендацию психолога ТОЛЬКО для критических случаев
+
+    # Сохраняем ответ бота в историю
+    add_to_history(chat_id, bot_response, is_user=False)
+
     if crisis_level == 2:
         bot_response += f"\n\n🤍 Пожалуйста, позвони {HELP_LINE} или обратись к {PSYCHOLOGIST}. Это очень важно! Ты не один ✨"
-    
-    # Небольшая пауза
+
     time.sleep(0.5)
-    
     await update.message.reply_text(bot_response, parse_mode='Markdown')
 
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    caption = update.message.caption if update.message.caption else ""
+
+    if caption:
+        add_to_history(chat_id, f"[Фото] {caption}", is_user=True)
+        response = get_yandex_gpt_response(caption, chat_id)
+        response = clean_response(response)
+        add_to_history(chat_id, response, is_user=False)
+    else:
+        response = "Ой, я пока не умею видеть картинки 😅 Но если хочешь поделиться тем, что на фото, просто напиши об этом!"
+
+    if caption and detect_crisis_level(caption) == 2:
+        response += f"\n\n🤍 Пожалуйста, не оставайся один с этим. Обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}. Ты не один ✨"
+
+    await update.message.reply_text(response)
+
+
+async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    sticker = update.message.sticker
+    sticker_emoji = sticker.emoji if sticker.emoji else None
+
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    if sticker_emoji == '❤️' or sticker_emoji == '♥️':
+        response = "❤️"
+    elif sticker_emoji in ['😊', '🙂']:
+        response = "Рада, что ты улыбаешься! 😊"
+    elif sticker_emoji in ['😢', '😭']:
+        response = "Обнимаю тебя 🤗 Попробуй умыться холодной водой, иногда это очень отрезвляет 🫂"
+    elif sticker_emoji == '😂':
+        response = "Смех — лучшее лекарство! 😄"
+    elif sticker_emoji == '😍':
+        response = "💫"
+    elif sticker_emoji == '🤗':
+        response = "🤗 Обнимаю в ответ!"
+    elif sticker_emoji == '👍':
+        response = "👍"
+    elif sticker_emoji == '👎':
+        response = "Расскажешь, что случилось? 🤍 Может, разорвёшь бумажку на кусочки?"
+    else:
+        response = "Милый стикер! 🤍 Как ты себя чувствуешь?"
+
+    add_to_history(chat_id, f"[Стикер {sticker_emoji}]", is_user=True)
+    add_to_history(chat_id, response, is_user=False)
+
+    await update.message.reply_text(response)
+
+
 def main():
-    TOKEN = os.environ.get('BOT_TOKEN')
-    
+    if not TOKEN:
+        raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
+    if not FOLDER_ID:
+        raise ValueError("❌ Ошибка: нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
+    if not API_KEY:
+        raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
+
     application = Application.builder().token(TOKEN).build()
-    
-    # Добавляем обработчики
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-    
+
     print("✅ Бот с Яндекс GPT запущен!")
+    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений каждого пользователя")
+    print("🌿 ТЕХНИКИ ВКЛЮЧЕНЫ: вместо 'дыши' бот предлагает конкретные действия")
     print("📸 Распознавание фото: ДА")
     print("🎨 Распознавание стикеров: ДА")
-    print("💬 Короткие ответы: ДА (2-5 предложений)")
-    print("🌡 Temperature: 0.9")
-    print("🔄 Фразы распределены: ДА")
-    print("➕ Добавлены критические фразы: ДА")
-    
+
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()
-# Проверка, что всё загрузилось
-if not TOKEN:
-    raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
-if not FOLDER_ID:
-    raise ValueError("❌ Ошибка: нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
-if not API_KEY:
-    raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
