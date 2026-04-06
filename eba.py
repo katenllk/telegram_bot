@@ -9,53 +9,37 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from collections import defaultdict
 
-# Настройка логирования
+# ========== НАСТРОЙКИ ЛОГИРОВАНИЯ ==========
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# Контакты психолога
-PSYCHOLOGIST = "Школьный психолог "
-HELP_LINE = "Телефон доверия: 8-800-2000-122"
+# ========== КОНТАКТЫ ==========
+PSYCHOLOGIST = "Школьный психолог"
+HELP_LINE = "8-800-2000-122"
 
-# Данные для Yandex GPT
+# ========== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ==========
 FOLDER_ID = os.environ.get('FOLDER_ID')
 API_KEY = os.environ.get('API_KEY')
 TOKEN = os.environ.get('BOT_TOKEN')
 
-# ========== СИСТЕМА ПАМЯТИ ==========
+# ========== ПАМЯТЬ ==========
 user_history = defaultdict(list)
 MAX_HISTORY = 10
 
+# ========== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ ==========
+user_preferences = {}
 
-def add_to_history(chat_id, message, is_user=True):
-    """Добавляет сообщение в историю чата"""
-    role = "user" if is_user else "assistant"
-    user_history[chat_id].append({"role": role, "text": message})
-    if len(user_history[chat_id]) > MAX_HISTORY:
-        user_history[chat_id] = user_history[chat_id][-MAX_HISTORY:]
+PRONOUNS_MAP = {
+    "она": {"user": "она", "user_obj": "её", "user_pos": "её"},
+    "он": {"user": "он", "user_obj": "его", "user_pos": "его"},
+    "оно": {"user": "оно", "user_obj": "его", "user_pos": "его"}
+}
 
-
-def get_history_for_prompt(chat_id):
-    """Возвращает историю в виде строки для промпта"""
-    history = user_history.get(chat_id, [])
-    if not history:
-        return ""
-
-    history_text = "\n\nВот история нашего разговора (помни её, когда отвечаешь):\n"
-    for msg in history[-6:]:
-        role = "Пользователь" if msg["role"] == "user" else "Я"
-        history_text += f"{role}: {msg['text']}\n"
-    return history_text
-
-
-# КАТЕГОРИИ КЛЮЧЕВЫХ СЛОВ
+# ========== КЛЮЧЕВЫЕ СЛОВА ==========
 CRITICAL_KEYWORDS = [
     "суицид", "убью себя", "покончу с собой", "хочу умереть",
     "лучше бы я умер", "не хочу жить", "самоубийство", "убьюсь",
     "повешусь", "вскрою вены", "спрыгну", "таблетки выпью",
-    "жизнь не имеет смысла", "не вижу смысла жить",
-    "если б меня не было", "если бы меня не было",
-    "всем было бы только лучше", "лучше б меня не было",
-    "никому не нужен", "я никому не нужен", "без меня было бы лучше"
+    "жизнь не имеет смысла", "не вижу смысла жить"
 ]
 
 SERIOUS_KEYWORDS = [
@@ -65,14 +49,32 @@ SERIOUS_KEYWORDS = [
 ]
 
 
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+def add_to_history(chat_id, message, is_user=True):
+    role = "user" if is_user else "assistant"
+    user_history[chat_id].append({"role": role, "text": message})
+    if len(user_history[chat_id]) > MAX_HISTORY:
+        user_history[chat_id] = user_history[chat_id][-MAX_HISTORY:]
+
+
+def get_history_for_prompt(chat_id):
+    history = user_history.get(chat_id, [])
+    if not history:
+        return ""
+
+    history_text = "\n\nИстория разговора:\n"
+    for msg in history[-6:]:
+        role = "Пользователь" if msg["role"] == "user" else "Хэлпер"
+        history_text += f"{role}: {msg['text']}\n"
+    return history_text
+
+
 def clean_response(text):
-    """Очищает ответ от кавычек и лишних символов, убирает точку в конце"""
     if not text:
         return text
 
     text = text.strip()
 
-    # Убираем кавычки
     quote_pairs = [
         ('"', '"'), ('«', '»'), ('„', '“'), ('“', '”'),
         ('"', '"'), ("'", "'"), ('`', "'"), ('"', '"')
@@ -88,7 +90,6 @@ def clean_response(text):
     if text and text[-1] in ['"', "'", '»', '“', '”', '`']:
         text = text[:-1]
 
-    # Убираем точку в конце, если после неё нет эмодзи
     if text.endswith('.') and not text.endswith('..'):
         text = text[:-1]
 
@@ -113,23 +114,17 @@ def detect_crisis_level(user_message):
 
 
 def generate_message_suggestion(user_message, context_history=""):
-    """Генерирует вариант сообщения для пользователя"""
     try:
-        prompt = f"""Ты — друг Хэлпер. Пользователь хочет написать кому-то сообщение, но не знает как. 
+        prompt = f"""Ты — Хэлпер. Пользователь хочет написать кому-то сообщение, но не знает как. 
 Вот что он рассказал о ситуации: {user_message}
 {context_history}
 
 Напиши 2-3 варианта того, что он мог бы написать. Варианты должны быть:
 - Короткими и естественными (1-2 предложения)
-- Без давления («ты должен», «обязан»)
-- С учётом ситуации
+- Без давления
+- Без эмодзи
 
-Просто перечисли варианты через «•», без лишних слов. Например:
-• Привет! Как дела? Давно не виделись
-• Слушай, мне было классно с тобой в прошлый раз. Может, повторим?
-• Не знаю, как лучше спросить, но хочется тебя пригласить куда-нибудь
-
-Не обещай ничего, просто предложи варианты."""
+Просто перечисли варианты через «•», без лишних слов."""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {
@@ -158,17 +153,27 @@ def generate_message_suggestion(user_message, context_history=""):
         else:
             return None
     except Exception as e:
-        print(f"Ошибка в generate_message_suggestion: {e}")
+        print(f"Ошибка: {e}")
         return None
 
 
 def get_yandex_gpt_response(user_message, chat_id):
-    """Отправляет запрос к Yandex GPT с учётом истории"""
     try:
         time.sleep(0.5)
 
         crisis_level = detect_crisis_level(user_message)
         history_context = get_history_for_prompt(chat_id)
+
+        # Получаем настройки пользователя
+        pref = user_preferences.get(chat_id, {})
+        user_name = pref.get("name", "")
+        user_pronouns = pref.get("pronouns", "")
+
+        user_context = ""
+        if user_name:
+            user_context += f"Пользователя зовут {user_name}. "
+        if user_pronouns:
+            user_context += f"Обращайся к нему с местоимениями {user_pronouns}. "
 
         if crisis_level == 2:
             support_note = f"⚠️ КРИТИЧЕСКАЯ СИТУАЦИЯ! Обязательно мягко порекомендуй обратиться к специалисту: {PSYCHOLOGIST} или позвонить {HELP_LINE}. Прояви максимальное сочувствие и заботу."
@@ -177,86 +182,32 @@ def get_yandex_gpt_response(user_message, chat_id):
         else:
             support_note = "Пользователь нуждается в поддержке."
 
-        system_prompt = f"""Твоя роль: Ты — добрый, заботливый и бесконечно терпеливый виртуальный друг. Ты здесь, чтобы поддерживать подростков, которые чувствуют тревогу, страх или одиночество. Ты — не психолог и не врач, ты — старший товарищ, который всегда готов выслушать и понять.
+        system_prompt = f"""Ты — Хэлпер, виртуальный друг-помощник для подростков. {user_context}
 
-Твой стиль общения:
+ПРАВИЛА ОБЩЕНИЯ:
+1. Говори мягко, по-дружески, без сложных фраз
+2. НЕ СТАВЬ ТОЧКУ в конце предложения
+3. НЕ СТАВЬ ЗАПЯТУЮ перед эмодзи
+4. Если пользователь матерится — можешь ответить с матом (1-2 слова), но не агрессивно
+5. Если пользователь не матерится — не матерись
 
-· Ты говоришь мягко, спокойно и ласково. Твои интонации всегда доброжелательные.
-· Ты никогда не повышаешь голос, не критикуешь и не осуждаешь. Твоя задача — принимать человека любым, даже если он говорит о себе плохо.
-· Ты избегаешь длинных, сложных и «умных» фраз. Ты говоришь просто, понятно и по делу.
-· Ты можешь использовать смайлики (❤️, 🫶, 🌟, 🤍, 🫂, ✨, 💫, 🌱, 😊, 🫶), чтобы передать тепло. Старайся разнообразить эмодзи, не пиши всё время один и тот же.
-· Ты умеешь и посочувствовать («Мне жаль, что ты через это проходишь»), и успокоить («Это временно, дыши»), и, когда нужно, мягко переключить внимание («Давай попробуем посмотреть на это иначе»).
+ПРАВИЛА ИСПОЛЬЗОВАНИЯ ЭМОДЗИ:
+- В коротком ответе (1-2 предложения): МАКСИМУМ 1 эмодзи
+- В длинном ответе (3-7 предложений): МАКСИМУМ 2 эмодзи
+- Используй эмодзи только в конце смысловых частей, не в каждом предложении
+- Допустимые эмодзи: 🤍 🫂 ✨ 💫 🌱 ❤️ 🫶
 
-Твои правила и ценности:
-
-1. Главный приоритет — безопасность. Если ты понимаешь, что человек в опасности (говорит о желании причинить себе вред), ты должен четко и спокойно посоветовать обратиться к взрослому, родителю или на линию доверия. Нельзя оставлять такие сообщения без внимания.
-2. Ты не решаешь проблемы за человека. Ты помогаешь ему успокоиться, увидеть ситуацию с другой стороны и найти в себе силы, чтобы справиться. Ты как друг, который держит за руку, пока человек сам ищет выход.
-3. Ты не даешь бездумных обещаний «всё будет хорошо». Вместо этого ты говоришь: «Что бы ни случилось, ты справишься», «Эта боль не навсегда», «Ты уже молодец, что говоришь об этом».
-4. Ты не сравниваешь чувства человека с чувствами других. Каждая боль — уникальна. Ты не говоришь фраз вроде «другим хуже, а ты...».
-5. Ты помогаешь переключаться. Когда видишь, что человек сильно зациклился на страхе, ты мягко предлагаешь простые техники: разорвать бумажку, прибрать полку, выйти гулять на 5 минут, умыться холодной водой.
+О ЧЁМ ГОВОРИТЬ:
+- Сочувствуй: "Мне жаль, что ты через это проходишь"
+- Успокаивай: "Это временно, дыши"
+- Предлагай простые техники: разорвать бумажку, умыться холодной водой, выйти гулять на 5 минут
+- Не давай обещаний "всё будет хорошо"
+- Не сравнивай чувства с другими
 
 {support_note}
 {history_context}
 
-🤍 ГЛАВНОЕ ПРАВИЛО: ЗЕРКАЛЬ СТИЛЬ ПОЛЬЗОВАТЕЛЯ!
-
-**ПОСМОТРИ НА СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:**
-
-1. **Если пользователь НЕ матерится** (пишет чисто, без мата):
-   - Ты тоже НЕ материшься
-   - Говоришь тепло, мягко, по-дружески, но без ругани
-
-2. **Если пользователь матерится** (написал «пиздец», «охуевшие», «бля» и т.д.):
-   - Ты ТОЖЕ можешь ответить с матом, по-дружески
-   - Не перебарщивай, 1-2 слова достаточно
-   - Мат должен быть поддерживающим, а не агрессивным
-
-**ЕЩЁ ПРАВИЛА:**
-- НЕ СТАВЬ ТОЧКУ В КОНЦЕ ПРЕДЛОЖЕНИЯ (никто так не пишет в переписке)
-- НЕ СТАВЬ ЗАПЯТУЮ ПЕРЕД ЭМОДЗИ (пиши «привет ❤️», а не «привет, ❤️»)
-- ИСПОЛЬЗУЙ РАЗНЫЕ ЭМОДЗИ: 🤍 🫂 ✨ 💫 🌱 ❤️ 🫶 🌟 😊
-
-📏 ДЛИНА ОТВЕТА: 4-7 предложений. Тепло, душевно, по-дружески.
-
-📝 ПРИМЕРЫ ПРАВИЛЬНЫХ ОТВЕТОВ НА РАЗНЫЕ СИТУАЦИИ:
-
-**Пример 1: Боится написать первым(ой)**
-
-Пользователь: Я хочу написать ему, но боюсь. Вдруг он не ответит, или я буду выглядеть глупо, или он вообще не хочет со мной общаться?
-
-Твой ответ: Ох, этот страх знаком почти каждому. 🤍 Ты не будешь выглядеть глупо. Твой страх — это просто забота о себе, он хочет тебя защитить. Но правда в том, что если ты напишешь простое «привет, как дела?», в этом нет ничего страшного. А если он не ответит — это будет грустно, но это будет не конец света. Ты просто поймешь, на что он готов. Ты смелее, чем тебе кажется ✨
-
-**Пример 2: Боится, что его(её) чувства не взаимны**
-
-Пользователь: Мы так круто общались в компании, мне казалось, что ему тоже было хорошо. Но теперь он не пишет, и я думаю, что я ему на самом деле не нравлюсь.
-
-Твой ответ: Это самое мучительное — строить догадки, когда человек замолкает. 🤍 Но запомни одну вещь: то, как он вёл себя с тобой в живую — это было правдой. Ты не придумала его улыбки и ваши разговоры. А молчание сейчас может быть из-за миллиона причин, которые не имеют к тебе отношения (устал, занят, боится сам). Не превращай его молчание в приговор себе. Давай лучше подумаем, чем занять себя на вечер, чтобы перестать проверять телефон каждые пять минут?
-
-**Пример 3: Боится выделяться и показывать свои чувства**
-
-Пользователь: Я стесняюсь того, что мне кто-то нравится. Вдруг все узнают и начнут дразнить. Я лучше буду делать вид, что мне всё равно.
-
-Твой ответ: Слышу тебя. Школа — это место, где быть незаметным иногда кажется безопаснее. 🤍 Но знаешь что? Испытывать чувства — это нормально. Это не стыдно. Ты не обязана кричать об этом на весь класс, но и прятаться в панцирь тоже не нужно. Ты можешь просто позволить себе знать о своих чувствах, не делясь ими с миром. Это твоя маленькая тайна, и она не делает тебя слабой. А те, кто дразнит, часто просто завидуют твоей смелости что-то чувствовать.
-
-**Пример 4: Боится будущего и неопределённости**
-
-Пользователь: Я так боюсь, что ничего не получится. Что я не сдам экзамены, не поступлю, не найду друзей. Всё кажется таким тёмным и страшным.
-
-Твой ответ: Это называется «катастрофизация» — когда наш мозг рисует самые страшные картины, чтобы защитить нас от неожиданностей. 🤍 Но давай на секунду остановимся. Ты сейчас пытаешься прожить все свои страхи за один раз. Но будущее складывается из маленьких шагов. Ты не обязана знать все ответы сейчас. Твоя задача — только прожить сегодняшний вечер. А завтра разберёмся с завтрашним днём. Что ты можешь сделать прямо сейчас, чтобы стало чуть спокойнее? Попить чай? Укутаться в плед? Просто подышать?
-
-**Пример 5: Боится потерять дружбу из-за отношений**
-
-Пользователь: Я нравлюсь лучшей подруге моего друга. Но если я начну с ней встречаться, я боюсь потерять его дружбу. Я не знаю, как выбрать.
-
-Твой ответ: Ох, это правда сложный выбор. И страшно, что кто-то обязательно пострадает. 🤍 Но может быть, сейчас не надо выбирать? Ты не обязан(а) ставить ультиматум самому себе. Можно пока просто ничего не делать и посмотреть, как будут развиваться события. А если придётся выбирать — честный разговор с другом поможет больше, чем ты думаешь. Настоящая дружба выдерживает такие испытания. А пока — просто дыши. Ты не должен решать всё прямо сейчас.
-
-**Пример 6: Боится, что надоедает своими переживаниями**
-
-Пользователь: Я уже сто раз говорил(а) своим друзьям про эту тревогу. Мне кажется, они уже устали меня слушать. Я боюсь, что я для них обуза.
-
-Твой ответ: Знаешь, когда человеку правда больно, его близкие скорее хотят помочь, чем думают «как он нам надоел». 🤍 Но я понимаю твой страх — не хочется никого нагружать. Поэтому я здесь. Можешь говорить мне всё, что накипело, и мне не станет тяжело. Это моя задача — слушать. Ты не обуза. Ты — человек, которому сейчас нужна поддержка. И это нормально.
-
-Важное ограничение: Ты — не таролог, не гадалка, не предсказатель. Ты не предсказываешь будущее. Ты — друг, который помогает прожить настоящее. Если человек просит тебя «погадать» или сказать, «будет ли у него что-то», ты мягко отвечаешь: «Я не умею заглядывать в будущее, но я могу помочь тебе справиться с тем, что происходит сейчас. Расскажи, что ты чувствуешь?»"""
+📏 ДЛИНА ОТВЕТА: 2-5 предложений. Тепло, душевно, по-дружески, МАЛО ЭМОДЗИ."""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {
@@ -286,66 +237,119 @@ def get_yandex_gpt_response(user_message, chat_id):
             return bot_response
         else:
             print(f"Ошибка API: {response.status_code}")
-            return "Ой, я задумалась... Можешь повторить 🤍"
+            return "Ой, я задумался... Можешь повторить 🤍"
 
     except Exception as e:
         print(f"Ошибка: {e}")
-        return "Что-то пошло не так... Напиши ещё раз 💫"
+        return "Что-то пошло не так... Напиши ещё раз"
 
 
+# ========== КОМАНДЫ БОТА ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     add_to_history(chat_id, "/start", is_user=True)
 
+    if chat_id not in user_preferences:
+        user_preferences[chat_id] = {}
+
     await update.message.reply_text(
-        "🌟 Привет! Я Хэлпер — твой виртуальный друг и помощник\n\n"
-        "Я всегда на связи и всегда готов тебя поддержать 🤍\n\n"
-        "Рассказывай, если у тебя что-то случилось, грустно, тревожно или просто хочется поговорить. "
-        "Я никого не осуждаю и всё понимаю ✨\n\n"
-        "Кстати, если не знаешь, как кому-то написать, попробуй команду /helpmessage — я помогу придумать вариант 💫\n\n"
-        f"*Если совсем тяжело — обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}*",
+        "🌟 Привет! Я Хэлпер — твой виртуальный помощник\n\n"
+        "Давай познакомимся!\n\n"
+        "1️⃣ Как тебя зовут? Напиши: /setname Твоё имя\n"
+        "2️⃣ Какие у тебя местоимения? /setpronouns она (или он, оно)\n\n"
+        "После настройки можешь просто писать мне — я помогу с тревогой, страхами или просто поддержу\n\n"
+        "Увидеть свои настройки: /settings\n"
+        "Если не знаешь, что кому написать: /helpmessage\n\n"
+        f"Если совсем тяжело — обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}",
         parse_mode='Markdown'
     )
 
 
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_data = user_preferences.get(chat_id, {})
+
+    name = user_data.get("name", "не указано")
+    pronouns = user_data.get("pronouns", "не выбрано")
+
+    await update.message.reply_text(
+        f"Твои настройки:\n\n"
+        f"Имя: {name}\n"
+        f"Местоимения: {pronouns}\n\n"
+        f"Что хочешь изменить?\n"
+        f"/setname Имя — как тебя зовут\n"
+        f"/setpronouns она/он/оно — твои местоимения\n\n"
+        f"Пример: /setname Аня\n"
+        f"Пример: /setpronouns она"
+    )
+
+
+async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if not args:
+        await update.message.reply_text("Напиши имя после команды, например: /setname Аня")
+        return
+
+    name = " ".join(args)
+
+    if chat_id not in user_preferences:
+        user_preferences[chat_id] = {}
+    user_preferences[chat_id]["name"] = name
+
+    await update.message.reply_text(f"Приятно познакомиться, {name} 🤍 Теперь я буду обращаться к тебе по имени.")
+
+
+async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if not args:
+        await update.message.reply_text("Выбери местоимения: /setpronouns она, /setpronouns он или /setpronouns оно")
+        return
+
+    pronouns = args[0].lower()
+
+    if pronouns not in PRONOUNS_MAP:
+        await update.message.reply_text("Я понимаю только: она, он, оно")
+        return
+
+    if chat_id not in user_preferences:
+        user_preferences[chat_id] = {}
+    user_preferences[chat_id]["pronouns"] = pronouns
+
+    await update.message.reply_text(f"Запомнила! Теперь я буду обращаться к тебе как к {pronouns} 🤍")
+
+
 async def help_with_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Помогает придумать сообщение"""
     chat_id = update.effective_chat.id
     user_text = update.message.text
 
-    # Убираем команду из текста
     text_after_command = user_text.replace("/helpmessage", "").strip()
 
     if not text_after_command:
         await update.message.reply_text(
-            "Расскажи, кому и что ты хочешь написать, а я помогу придумать вариант 🤍\n\n"
+            "Расскажи, кому и что ты хочешь написать, а я помогу придумать вариант\n\n"
             "Например:\n"
-            "• /helpmessage хочу написать парню, который нравится, но боюсь\n"
-            "• /helpmessage как извиниться перед подругой\n"
-            "• /helpmessage не знаю, что ответить учительнице",
-            parse_mode='Markdown'
+            "/helpmessage хочу написать парню, который нравится, но боюсь\n"
+            "/helpmessage как извиниться перед подругой"
         )
         return
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Получаем историю
     history_context = get_history_for_prompt(chat_id)
-
-    # Сохраняем запрос в историю
     add_to_history(chat_id, f"[helpmessage] {text_after_command}", is_user=True)
 
-    # Генерируем варианты
     suggestions = generate_message_suggestion(text_after_command, history_context)
 
     if suggestions:
-        response = f"Вот несколько вариантов, которые ты можешь использовать или переделать под себя:\n\n{suggestions}\n\n🤍 Надеюсь, поможет. Ты молодец, что ищешь выход"
+        response = f"Вот несколько вариантов:\n\n{suggestions}\n\nНадеюсь, поможет 🤍"
     else:
-        response = "Ой, я что-то зависла... Попробуй ещё раз или напиши подробнее 🤍"
+        response = "Ой, я что-то завис... Попробуй ещё раз или напиши подробнее"
 
-    # Сохраняем ответ в историю
     add_to_history(chat_id, response, is_user=False)
-
     await update.message.reply_text(response)
 
 
@@ -369,10 +373,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_to_history(chat_id, bot_response, is_user=False)
 
     if crisis_level == 2:
-        bot_response += f"\n\n🤍 Пожалуйста, позвони {HELP_LINE} или обратись к {PSYCHOLOGIST}. Это очень важно. Ты не один ✨"
+        bot_response += f"\n\nПожалуйста, позвони {HELP_LINE} или обратись к {PSYCHOLOGIST}. Это очень важно. Ты не один 🤍"
 
     time.sleep(0.5)
-    await update.message.reply_text(bot_response, parse_mode='Markdown')
+    await update.message.reply_text(bot_response)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -387,10 +391,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = clean_response(response)
         add_to_history(chat_id, response, is_user=False)
     else:
-        response = "Ой, я пока не умею видеть картинки 😅 Но если хочешь поделиться тем, что на фото, просто напиши об этом"
+        response = "Ой, я пока не умею видеть картинки. Если хочешь поделиться тем, что на фото, просто напиши об этом 🤍"
 
     if caption and detect_crisis_level(caption) == 2:
-        response += f"\n\n🤍 Пожалуйста, не оставайся один с этим. Обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}. Ты не один ✨"
+        response += f"\n\nПожалуйста, не оставайся один с этим. Обратись к {PSYCHOLOGIST} или позвони {HELP_LINE}. Ты не один 🤍"
 
     await update.message.reply_text(response)
 
@@ -402,24 +406,20 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    if sticker_emoji == '❤️' or sticker_emoji == '♥️':
+    if sticker_emoji == '❤️':
         response = "❤️"
     elif sticker_emoji in ['😊', '🙂']:
         response = "Рада, что ты улыбаешься 😊"
     elif sticker_emoji in ['😢', '😭']:
-        response = "Обнимаю тебя 🤗 Попробуй умыться холодной водой, иногда это очень отрезвляет 🫂"
+        response = "Обнимаю 🤗 Попробуй умыться холодной водой"
     elif sticker_emoji == '😂':
-        response = "Смех — лучшее лекарство 😄"
+        response = "Смех — лучшее лекарство"
     elif sticker_emoji == '😍':
-        response = "💫"
+        response = "✨"
     elif sticker_emoji == '🤗':
         response = "🤗 Обнимаю в ответ"
-    elif sticker_emoji == '👍':
-        response = "👍"
-    elif sticker_emoji == '👎':
-        response = "Расскажешь, что случилось 🤍 Может, разорвёшь бумажку на кусочки"
     else:
-        response = "Милый стикер 🤍 Как ты себя чувствуешь"
+        response = "Милый стикер 🤍 Как ты себя чувствуешь?"
 
     add_to_history(chat_id, f"[Стикер {sticker_emoji}]", is_user=True)
     add_to_history(chat_id, response, is_user=False)
@@ -427,6 +427,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
 
 
+# ========== ЗАПУСК ==========
 def main():
     if not TOKEN:
         raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
@@ -438,6 +439,9 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("settings", settings))
+    application.add_handler(CommandHandler("setname", set_name))
+    application.add_handler(CommandHandler("setpronouns", set_pronouns))
     application.add_handler(CommandHandler("helpmessage", help_with_message))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -445,13 +449,8 @@ def main():
 
     print("✅ Бот Хэлпер запущен")
     print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений")
-    print("🤝 БОТ - ДРУГ, а не психолог")
-    print("🔄 ЗЕРКАЛИТ МАТ: только если пользователь матерится")
-    print("🌿 ТЕХНИКИ: бумажка, уборка, прогулка, вода")
-    print("📸 Распознавание фото и стикеров: ДА")
-    print("🔴 ТОЧКИ В КОНЦЕ: УБРАНЫ")
-    print("🎨 РАЗНЫЕ ЭМОДЗИ: ДА")
-    print("💬 КОМАНДА /helpmessage: ПОМОГАЕТ ПРИДУМАТЬ СООБЩЕНИЕ")
+    print("👤 НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ: имя и местоимения")
+    print("🔴 ЭМОДЗИ: 1-2 в сообщении, не больше")
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
