@@ -3,23 +3,30 @@ import os
 import logging
 import requests
 import json
-import time
 import re
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from flask import Flask, request, jsonify
+from telegram import Update, Bot
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, ContextTypes
 from collections import defaultdict
 
-# Настройка логирования
+# ========== НАСТРОЙКИ ЛОГИРОВАНИЯ ==========
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# Контакты психолога
+# ========== КОНТАКТЫ ПСИХОЛОГА ==========
 PSYCHOLOGIST = "Школьный психолог"
 HELP_LINE = "8-800-2000-122"
 
-# Данные для Yandex GPT
+# ========== ДАННЫЕ ДЛЯ YANDEX GPT ==========
 FOLDER_ID = os.environ.get('FOLDER_ID')
 API_KEY = os.environ.get('API_KEY')
 TOKEN = os.environ.get('BOT_TOKEN')
+
+if not TOKEN:
+    raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
+if not FOLDER_ID:
+    raise ValueError("❌ Ошибка: нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
+if not API_KEY:
+    raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
 
 # ========== СИСТЕМА ПАМЯТИ ==========
 user_history = defaultdict(list)
@@ -35,6 +42,7 @@ PRONOUNS_MAP = {
 }
 
 
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def add_to_history(chat_id, message, is_user=True):
     role = "user" if is_user else "assistant"
     user_history[chat_id].append({"role": role, "text": message})
@@ -54,6 +62,7 @@ def get_history_for_prompt(chat_id):
     return history_text
 
 
+# ========== КЛЮЧЕВЫЕ СЛОВА ДЛЯ КРИТИЧЕСКИХ СИТУАЦИЙ ==========
 CRITICAL_KEYWORDS = [
     "суицид", "убью себя", "покончу с собой", "хочу умереть",
     "лучше бы я умер", "не хочу жить", "самоубийство", "убьюсь",
@@ -68,6 +77,7 @@ SERIOUS_KEYWORDS = [
 ]
 
 
+# ========== ФУНКЦИИ ОЧИСТКИ И ОБРАБОТКИ ==========
 def clean_response(text):
     if not text:
         return text
@@ -111,6 +121,7 @@ def detect_crisis_level(user_message):
     return 0
 
 
+# ========== ГЕНЕРАЦИЯ ПРЕДЛОЖЕНИЙ ДЛЯ /helpmessage ==========
 def generate_message_suggestion(user_message, context_history=""):
     try:
         prompt = f"""Ты — Хэлпер. Пользователь хочет написать кому-то сообщение, но не знает как. 
@@ -155,10 +166,9 @@ def generate_message_suggestion(user_message, context_history=""):
         return None
 
 
+# ========== ОСНОВНАЯ ФУНКЦИЯ ДЛЯ YANDEX GPT ==========
 def get_yandex_gpt_response(user_message, chat_id):
     try:
-        time.sleep(0.5)
-
         crisis_level = detect_crisis_level(user_message)
         history_context = get_history_for_prompt(chat_id)
 
@@ -263,7 +273,8 @@ def get_yandex_gpt_response(user_message, chat_id):
         return "Что-то пошло не так... Напиши ещё раз 😔🙏"
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ========== КОМАНДЫ БОТА ==========
+async def start(update: Update, context):
     chat_id = update.effective_chat.id
     add_to_history(chat_id, "/start", is_user=True)
 
@@ -283,7 +294,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def settings(update: Update, context):
     chat_id = update.effective_chat.id
     user_data = user_preferences.get(chat_id, {})
 
@@ -302,7 +313,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_name(update: Update, context):
     chat_id = update.effective_chat.id
     args = context.args
 
@@ -319,7 +330,7 @@ async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Приятно познакомиться, {name} 🫶 Теперь я буду обращаться к тебе по имени.")
 
 
-async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_pronouns(update: Update, context):
     chat_id = update.effective_chat.id
     args = context.args
 
@@ -340,7 +351,7 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Запомнила! Теперь я буду обращаться к тебе как к {pronouns} ❤️")
 
 
-async def help_with_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_with_message(update: Update, context):
     chat_id = update.effective_chat.id
     user_text = update.message.text
 
@@ -371,7 +382,7 @@ async def help_with_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context):
     chat_id = update.effective_chat.id
     user_text = update.message.text
 
@@ -393,11 +404,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if crisis_level == 2:
         bot_response += f"\n\nПожалуйста, позвони {HELP_LINE} или обратись к {PSYCHOLOGIST}. Это очень важно. Ты не один ❤️"
 
-    time.sleep(0.5)
     await update.message.reply_text(bot_response)
 
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_photo(update: Update, context):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
@@ -417,7 +427,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
 
 
-async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_sticker(update: Update, context):
     chat_id = update.effective_chat.id
     sticker = update.message.sticker
     sticker_emoji = sticker.emoji if sticker.emoji else None
@@ -429,7 +439,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif sticker_emoji in ['😊', '🙂']:
         response = "Рада, что ты улыбаешься 😊"
     elif sticker_emoji in ['😢', '😭']:
-        response = "Оу… Вижу тебе сейчас тяжело, если хочешь можешь рассказать мне, что случилось💔"
+        response = "Оу…Вижу тебе сейчас тяжело, если хочешь можешь рассказать мне, что случилось💔"
     elif sticker_emoji == '😂':
         response = "😝"
     elif sticker_emoji == '😍':
@@ -449,26 +459,46 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
 
 
-def main():
-    if not TOKEN:
-        raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
-    if not FOLDER_ID:
-        raise ValueError("❌ Ошибка: нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
-    if not API_KEY:
-        raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
+# ========== FLASK WEBHOOK ==========
+app = Flask(__name__)
+bot = Bot(token=TOKEN)
+dispatcher = Dispatcher(bot, None, use_context=True)
 
-    application = Application.builder().token(TOKEN).build()
+# Регистрируем все обработчики
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("settings", settings))
+dispatcher.add_handler(CommandHandler("setname", set_name))
+dispatcher.add_handler(CommandHandler("setpronouns", set_pronouns))
+dispatcher.add_handler(CommandHandler("helpmessage", help_with_message))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+dispatcher.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+dispatcher.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("settings", settings))
-    application.add_handler(CommandHandler("setname", set_name))
-    application.add_handler(CommandHandler("setpronouns", set_pronouns))
-    application.add_handler(CommandHandler("helpmessage", help_with_message))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-    print("✅ Бот Хэлпер запущен")
+@app.route(f'/webhook/{TOKEN}', methods=['POST'])
+def webhook():
+    json_str = request.get_data(as_text=True)
+    update = Update.de_json(json_str, bot)
+    dispatcher.process_update(update)
+    return 'ok', 200
+
+
+@app.route('/')
+def index():
+    return 'Бот Хэлпер работает! 🤍'
+
+
+if __name__ == '__main__':
+    # Устанавливаем webhook
+    railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    if railway_domain:
+        webhook_url = f"https://{railway_domain}/webhook/{TOKEN}"
+    else:
+        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_URL', 'localhost')}/webhook/{TOKEN}"
+
+    bot.set_webhook(webhook_url)
+    print(f"✅ Webhook установлен: {webhook_url}")
+    print("✅ Бот Хэлпер запущен в webhook-режиме")
     print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений")
     print("👤 НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ: имя и местоимения")
     print("🤝 БОТ - ДРУГ, а не психолог")
@@ -476,8 +506,6 @@ def main():
     print("🔴 ЭМОДЗИ: 1-2 в сообщении, не больше")
     print("💬 КОМАНДА /helpmessage: ПОМОГАЕТ ПРИДУМАТЬ СООБЩЕНИЕ")
 
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == '__main__':
-    main()
+    # Запускаем Flask
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
