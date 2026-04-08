@@ -1,4 +1,3 @@
-# Подключаем библиотеки
 import os
 import logging
 import requests
@@ -6,9 +5,9 @@ import json
 import re
 from flask import Flask, request, jsonify
 from telegram import Update, Bot
-from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.ext._dispatcher import Dispatcher
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from collections import defaultdict
+
 # ========== НАСТРОЙКИ ЛОГИРОВАНИЯ ==========
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -461,25 +460,26 @@ async def handle_sticker(update: Update, context):
 
 # ========== FLASK WEBHOOK ==========
 app = Flask(__name__)
-bot = Bot(token=TOKEN)
-dispatcher = Dispatcher(bot, None, use_context=True)
+
+# Создаём приложение для webhook
+telegram_app = Application.builder().token(TOKEN).build()
 
 # Регистрируем все обработчики
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("settings", settings))
-dispatcher.add_handler(CommandHandler("setname", set_name))
-dispatcher.add_handler(CommandHandler("setpronouns", set_pronouns))
-dispatcher.add_handler(CommandHandler("helpmessage", help_with_message))
-dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-dispatcher.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-dispatcher.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("settings", settings))
+telegram_app.add_handler(CommandHandler("setname", set_name))
+telegram_app.add_handler(CommandHandler("setpronouns", set_pronouns))
+telegram_app.add_handler(CommandHandler("helpmessage", help_with_message))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+telegram_app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
 
 @app.route(f'/webhook/{TOKEN}', methods=['POST'])
 def webhook():
     json_str = request.get_data(as_text=True)
-    update = Update.de_json(json_str, bot)
-    dispatcher.process_update(update)
+    update = Update.de_json(json_str, telegram_app.bot)
+    telegram_app.process_update(update)
     return 'ok', 200
 
 
@@ -496,7 +496,7 @@ if __name__ == '__main__':
     else:
         webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_URL', 'localhost')}/webhook/{TOKEN}"
 
-    bot.set_webhook(webhook_url)
+    telegram_app.bot.set_webhook(webhook_url)
     print(f"✅ Webhook установлен: {webhook_url}")
     print("✅ Бот Хэлпер запущен в webhook-режиме")
     print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений")
