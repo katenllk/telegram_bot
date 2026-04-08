@@ -491,13 +491,21 @@ def index():
 if __name__ == '__main__':
     import asyncio
 
-    # Устанавливаем webhook
+    # Пробуем получить домен из разных переменных Railway
     railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
-    if railway_domain:
-        webhook_url = f"https://{railway_domain}/webhook/{TOKEN}"
-    else:
-        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_URL', 'localhost')}/webhook/{TOKEN}"
+    if not railway_domain:
+        railway_domain = os.environ.get('RAILWAY_STATIC_URL', '')
+    if not railway_domain:
+        railway_domain = os.environ.get('RAILWAY_URL', '')
+    if not railway_domain:
+        # Если ничего нет — используем твой конкретный домен
+        railway_domain = 'heroic-patience-production.up.railway.app'
 
+    # Убираем https:// если вдруг попалось
+    railway_domain = railway_domain.replace('https://', '').replace('http://', '')
+
+    webhook_url = f"https://{railway_domain}/webhook/{TOKEN}"
+    print(f"🌐 Использую домен: {railway_domain}")
     asyncio.run(telegram_app.bot.set_webhook(webhook_url))
     print(f"✅ Webhook установлен: {webhook_url}")
     print("✅ Бот Хэлпер запущен в webhook-режиме")
