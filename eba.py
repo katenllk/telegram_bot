@@ -6,9 +6,9 @@ import json
 import re
 from flask import Flask, request, jsonify
 from telegram import Update, Bot
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext._dispatcher import Dispatcher
 from collections import defaultdict
-
 # ========== НАСТРОЙКИ ЛОГИРОВАНИЯ ==========
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
