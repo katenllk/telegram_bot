@@ -489,6 +489,8 @@ def index():
 
 
 if __name__ == '__main__':
+    import asyncio
+
     # Устанавливаем webhook
     railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
     if railway_domain:
@@ -496,7 +498,7 @@ if __name__ == '__main__':
     else:
         webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_URL', 'localhost')}/webhook/{TOKEN}"
 
-    telegram_app.bot.set_webhook(webhook_url)
+    asyncio.run(telegram_app.bot.set_webhook(webhook_url))
     print(f"✅ Webhook установлен: {webhook_url}")
     print("✅ Бот Хэлпер запущен в webhook-режиме")
     print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений")
