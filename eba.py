@@ -5,7 +5,7 @@ import json
 import re
 from flask import Flask, request, jsonify
 from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, ContextTypes
 from collections import defaultdict
 
 # ========== НАСТРОЙКИ ЛОГИРОВАНИЯ ==========
@@ -460,26 +460,25 @@ async def handle_sticker(update: Update, context):
 
 # ========== FLASK WEBHOOK ==========
 app = Flask(__name__)
-
-# Создаём приложение для webhook
-telegram_app = Application.builder().token(TOKEN).build()
+bot = Bot(token=TOKEN)
+dispatcher = Dispatcher(bot, None, use_context=True)
 
 # Регистрируем все обработчики
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(CommandHandler("settings", settings))
-telegram_app.add_handler(CommandHandler("setname", set_name))
-telegram_app.add_handler(CommandHandler("setpronouns", set_pronouns))
-telegram_app.add_handler(CommandHandler("helpmessage", help_with_message))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-telegram_app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("settings", settings))
+dispatcher.add_handler(CommandHandler("setname", set_name))
+dispatcher.add_handler(CommandHandler("setpronouns", set_pronouns))
+dispatcher.add_handler(CommandHandler("helpmessage", help_with_message))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+dispatcher.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+dispatcher.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
 
 @app.route(f'/webhook/{TOKEN}', methods=['POST'])
 def webhook():
     json_str = request.get_data(as_text=True)
-    update = Update.de_json(json_str, telegram_app.bot)
-    telegram_app.process_update(update)
+    update = Update.de_json(json_str, bot)
+    dispatcher.process_update(update)
     return 'ok', 200
 
 
@@ -489,19 +488,4 @@ def index():
 
 
 if __name__ == '__main__':
-    import asyncio
-
-    # Фиксированный домен Railway
-    webhook_url = f"https://heroic-patience-production.up.railway.app/webhook/8365880779:AAGuUXsmYdAgumO51qBCyvlTt5nbKhyjFJ8/"
-
-    print(f"🌐 Устанавливаю webhook: {webhook_url}")
-
-    # Устанавливаем webhook
-    asyncio.run(telegram_app.bot.set_webhook(webhook_url))
-
-    print(f"✅ Webhook установлен: {webhook_url}")
-    print("✅ Бот Хэлпер запущен в webhook-режиме")
-
-    # Запускаем Flask на всех интерфейсах
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    main()
