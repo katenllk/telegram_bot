@@ -492,7 +492,7 @@ if __name__ == '__main__':
     import asyncio
 
     # Фиксированный домен Railway
-    webhook_url = f"https://heroic-patience-production.up.railway.app/webhook/{TOKEN}"
+    webhook_url = f"https://heroic-patience-production.up.railway.app/webhook/8365880779:AAGuUXsmYdAgumO51qBCyvlTt5nbKhyjFJ8/"
 
     print(f"🌐 Устанавливаю webhook: {webhook_url}")
 
