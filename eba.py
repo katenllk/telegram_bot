@@ -472,6 +472,7 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
 
 
+# ========== ЗАПУСК С ПРОКСИ ==========
 def main():
     if not TOKEN:
         raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
@@ -480,7 +481,14 @@ def main():
     if not API_KEY:
         raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
 
-    application = Application.builder().token(TOKEN).build()
+    # ========== ПРОКСИ ДЛЯ РОССИИ ==========
+    from telegram.request import HTTPXRequest
+
+    # Бесплатный прокси (работает в России)
+    proxy_url = "socks5://91.206.244.104:1080"
+
+    request = HTTPXRequest(proxy_url=proxy_url)
+    application = Application.builder().token(TOKEN).request(request).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("settings", settings))
@@ -498,6 +506,7 @@ def main():
     print("🔴 ЭМОДЗИ: 1-2 в сообщении, не больше")
     print("🎭 ПОДСТРОЙКА ПОД РЕЧЬ: мат, сленг, сокращения")
     print("💬 ПОДДЕРЖКА ДИАЛОГА: спрашивает как дела, радуется, поддерживает")
+    print("🌐 ПРОКСИ ВКЛЮЧЕН: для работы в России")
 
     application.run_polling()
 
