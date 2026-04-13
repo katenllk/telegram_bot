@@ -474,12 +474,17 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ========== ЗАПУСК С ПРОКСИ ==========
 def main():
+    # Сначала проверяем переменные
     if not TOKEN:
         raise ValueError("❌ Ошибка: нет токена! Добавь BOT_TOKEN в переменные окружения")
     if not FOLDER_ID:
         raise ValueError("❌ Ошибка: нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
     if not API_KEY:
         raise ValueError("❌ Ошибка: нет API_KEY! Добавь API_KEY в переменные окружения")
+
+    print("✅ BOT_TOKEN =", TOKEN[:10] + "...")
+    print("✅ FOLDER_ID =", FOLDER_ID)
+    print("✅ API_KEY =", API_KEY[:15] + "...")
 
     # ========== ПРОКСИ ДЛЯ РОССИИ ==========
     from telegram.request import HTTPXRequest
