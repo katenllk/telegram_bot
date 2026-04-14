@@ -412,7 +412,16 @@ def main():
     print("✅ FOLDER_ID найден")
     print("✅ API_KEY найден")
 
-    application = Application.builder().token(TOKEN).build()
+    # Прокси для России (если нужно)
+    from telegram.request import HTTPXRequest
+    try:
+        proxy_url = os.environ.get('HTTP_PROXY', 'socks5://91.206.244.104:1080')
+        request = HTTPXRequest(proxy_url=proxy_url)
+        application = Application.builder().token(TOKEN).request(request).build()
+        print("🌐 Прокси включён")
+    except:
+        application = Application.builder().token(TOKEN).build()
+        print("🌐 Без прокси")
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("settings", settings))
@@ -423,13 +432,8 @@ def main():
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
     print("✅ Бот Хэлпер запущен")
-    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА: бот помнит последние 10 сообщений")
-    print("👤 НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ: имя и местоимения")
-    print("🤝 БОТ - ДРУГ, а не психолог")
-    print("💬 ПОДДЕРЖИВАЮЩИЕ ФРАЗЫ: плакать нормально, имеешь право и тд")
-    print("🔴 ЭМОДЗИ: 1-2 в сообщении, не больше")
-    print("🎭 ПОДСТРОЙКА ПОД РЕЧЬ: мат, сленг, сокращения")
-    print("💬 ПОДДЕРЖКА ДИАЛОГА: спрашивает как дела, радуется, поддерживает")
+    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА")
+    print("💬 ПОДДЕРЖКА ДИАЛОГА")
 
     application.run_polling()
 
