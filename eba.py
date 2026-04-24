@@ -253,7 +253,7 @@ def get_yandex_gpt_response(user_message, chat_id):
         {support_note}
         {history_context}
 
-        ОТВЕЧАЙ КОРОТКО И ПО ДЕЛУ, анализируя ситуацию. В конце один эмодзи. Не ставь точку."""
+        ОТВЕЧАЙ КОРОТКО И ПО ДЕЛУ, анализируя ситуацию. В конце один эмодзи. Не ставь точку.НА СООБЩЕНИЕ ТОЛЬКО ОДИН ЭМОДЗИ"""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {API_KEY}"}
