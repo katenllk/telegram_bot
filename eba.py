@@ -328,11 +328,11 @@ async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_preferences[chat_id]["bot_gender"] = bot_gender
 
     if bot_gender == "neutral":
-        response_text = f"Отлично! Я буду говорить о себе в среднем роде: 'я радо', 'моё имя Хэлпер', 'я твоё существо' 🤍"
+        response_text = f"Отлично! Я буду говорить о себе в среднем роде, например: 'я радо'🤍"
     elif bot_gender == "female":
-        response_text = f"Отлично! Я буду говорить о себе в женском роде: 'я рада', 'моя задача — поддержать тебя', 'я твоя подружка' 🤍"
+        response_text = f"Отлично! Я буду говорить о себе в женском роде, например: 'я рада'🤍"
     else:
-        response_text = f"Отлично! Я буду говорить о себе в мужском роде: 'я рад', 'мой задача — поддержать тебя', 'я твой друг' 🤍"
+        response_text = f"Отлично! Я буду говорить о себе в мужском роде, например: 'я рад'🤍"
 
     await update.message.reply_text(response_text)
 
