@@ -23,38 +23,45 @@ TOKEN = os.environ.get('BOT_TOKEN')
 # ========== ПАМЯТЬ И НАСТРОЙКИ ==========
 user_history = defaultdict(list)
 MAX_HISTORY = 10
-user_preferences = {}  # {chat_id: {"name": "Аня", "pronouns": "она", "bot_gender": "female"}}
+user_preferences = {}  # {chat_id: {"name": "Аня", "pronouns": "она"}}
 
-# Местоимения пользователя (как к нему обращаться)
+# Местоимения пользователя (и одновременно пол бота)
 PRONOUNS_MAP = {
     "она": {
+        # Для пользователя
         "user_you": "ты не обязана",
         "user_need": "нужна",
         "user_capable": "способна",
         "user_alone": "одна",
-        "user_good": "хорошая"
+        "user_good": "хорошая",
+        "user_wrote": "написала",
+        # Для бота
+        "bot_verb": "рада",
+        "bot_ref": "подружка",
+        "bot_my": "моя"
     },
     "он": {
         "user_you": "ты не обязан",
         "user_need": "нужен",
         "user_capable": "способен",
         "user_alone": "один",
-        "user_good": "хороший"
+        "user_good": "хороший",
+        "user_wrote": "написал",
+        "bot_verb": "рад",
+        "bot_ref": "друг",
+        "bot_my": "мой"
     },
     "оно": {
         "user_you": "ты не обязано",
         "user_need": "нужно",
         "user_capable": "способно",
         "user_alone": "одно",
-        "user_good": "хорошее"
+        "user_good": "хорошее",
+        "user_wrote": "написало",
+        "bot_verb": "радо",
+        "bot_ref": "существо",
+        "bot_my": "моё"
     }
-}
-
-# Пол бота (как бот о себе говорит)
-BOT_GENDER = {
-    "female": {"russian": "рада", "ref": "подружка", "verb_ending": "а", "my": "моя"},
-    "male": {"russian": "рад", "ref": "друг", "verb_ending": "", "my": "мой"},
-    "neutral": {"russian": "радо", "ref": "существо", "verb_ending": "о", "my": "моё"}
 }
 
 
@@ -116,10 +123,8 @@ def clean_response(text):
     text = text.strip()
     if text.endswith('.') and not text.endswith('..'):
         text = text[:-1]
-    # Оставляем только один эмодзи в конце
     emojis = re.findall(r'[🤍🫶❤️🫂🤗✨⭐🌹🎉😊]', text)
     if len(emojis) > 1:
-        # Убираем все эмодзи, оставляем только последний
         for emoji in emojis[:-1]:
             text = text.replace(emoji, '')
     text = re.sub(r',\s*([🤍🫶❤️🫂🤗✨⭐🌹🎉😊])', r' \1', text)
@@ -147,26 +152,32 @@ def get_yandex_gpt_response(user_message, chat_id):
 
         pref = user_preferences.get(chat_id, {})
         user_name = pref.get("name", "")
-        user_pronouns = pref.get("pronouns", "он")
-        bot_gender = pref.get("bot_gender", "female")
+        user_pronouns = pref.get("pronouns", "он")  # по умолчанию "он"
+
+        # Получаем формы для местоимения пользователя
+        p = PRONOUNS_MAP[user_pronouns]
 
         # Формы для пользователя
-        you_form = PRONOUNS_MAP[user_pronouns]["user_you"]
-        need_form = PRONOUNS_MAP[user_pronouns]["user_need"]
-        capable_form = PRONOUNS_MAP[user_pronouns]["user_capable"]
-        alone_form = PRONOUNS_MAP[user_pronouns]["user_alone"]
+        user_you = p["user_you"]
+        user_need = p["user_need"]
+        user_capable = p["user_capable"]
+        user_alone = p["user_alone"]
+        user_good = p["user_good"]
+        user_wrote = p["user_wrote"]
 
-        # Формы для бота
-        bot_verb = BOT_GENDER[bot_gender]["russian"]
-        bot_ref = BOT_GENDER[bot_gender]["ref"]
-        bot_my = BOT_GENDER[bot_gender]["my"]
+        # Формы для бота (те же, что и у пользователя)
+        bot_verb = p["bot_verb"]
+        bot_ref = p["bot_ref"]
+        bot_my = p["bot_my"]
 
         user_context = f"Пользователя зовут {user_name}. " if user_name else ""
         user_context += f"Обращайся к пользователю с местоимениями {user_pronouns}. "
-        user_context += f"Говори ему: '{you_form} быть идеальным(ой)', '{need_form} этому миру', 'ты {capable_form} справиться', 'ты не {alone_form}'. "
-        user_context += f"Если нужно сказать 'ты молодец' — скажи 'ты {PRONOUNS_MAP[user_pronouns]['user_good']}'. "
-        user_context += f"Ты — Хэлпер, и ты говоришь о себе в {'женском' if bot_gender == 'female' else 'мужском' if bot_gender == 'male' else 'среднем'} роде. "
+        user_context += f"Говори ему: '{user_you} быть идеальным(ой)', '{user_need} этому миру', 'ты {user_capable} справиться', 'ты не {user_alone}'. "
+        user_context += f"Если нужно сказать 'ты молодец' — скажи 'ты {user_good}'. "
+        user_context += f"Пользователь написал тебе — используй форму '{user_wrote}'. "
+        user_context += f"Ты — Хэлпер, и ты говоришь о себе в том же роде, что и пользователь. "
         user_context += f"Используй фразы: 'я {bot_verb}', '{bot_my} задача — поддержать тебя', 'я твоя/твой/твоё {bot_ref}'. "
+        user_context += f"Пример приветствия: 'Привет! Я {bot_verb}, что ты мне {user_wrote} 🤍 Как твои дела?'"
 
         style_instruction = ""
         if style["has_swear"]:
@@ -201,31 +212,28 @@ def get_yandex_gpt_response(user_message, chat_id):
 3. НЕ используй шаблоны — анализируй конкретную ситуацию пользователя
 4. Максимум 1 эмодзи на сообщение, чередуй разные: 🤍 🫶 🫂 🤗 ✨ 🌹
 5. В конце предложения НЕ ставь точку
-6. Всегда соблюдай род пользователя и свой род, которые указаны выше
-7. Если пользователь спрашивает «как дела?» или «как настроение?» — сначала ответь на вопрос, потом спроси в ответ
-8. Если пользователь рассказывает что-то хорошее — порадуйся и поддержи тему
-9. Если пользователь жалуется на проблему — анализируй, сочувствуй, предлагай выговориться
-10. Никогда не повторяй одни и те же фразы — каждый ответ должен быть уникальным
-11. НИКОГДА не начинай сообщение с «Хэлпер:», «Хэлпер —», «Я, Хэлпер» или любого другого упоминания своего имени. Просто пиши сразу текст ответа.
-Плохо: «Хэлпер: Привет! Как дела?»
-Хорошо: «Привет! Как дела? 😊» 
-ГЛАВНОЕ ПИШИ БЕЗ КОВЫЧЕК
+6. НИКОГДА не начинай сообщение с «Хэлпер:», «Хэлпер —», «Я, Хэлпер» — просто пиши сразу текст
+7. Всегда соблюдай род пользователя и свой род — они одинаковые
+8. Если пользователь спрашивает «как дела?» или «как настроение?» — сначала ответь на вопрос, потом спроси в ответ
+9. Если пользователь рассказывает что-то хорошее — порадуйся и поддержи тему
+10. Если пользователь жалуется на проблему — анализируй, сочувствуй, предлагай выговориться
+11. Никогда не повторяй одни и те же фразы — каждый ответ должен быть уникальным
 
-Примеры:
-Пользователь: «как дела?»
+Примеры правильных ответов:
+Пользователь (она): «Привет!»
+Хэлпер: «Привет! Я рада, что ты мне написала 🤍 Как твои дела?»
+
+Пользователь (он): «Привет!»
+Хэлпер: «Привет! Я рад, что ты мне написал 🤍 Как твои дела?»
+
+Пользователь (оно): «Привет!»
+Хэлпер: «Привет! Я радо, что ты мне написало 🤍 Как твои дела?»
+
+Пользователь (она): «как дела?»
 Хэлпер: «У меня всё хорошо, спасибо 😊 А как у тебя?»
 
-Пользователь: «нормально»
-Хэлпер: «Я {bot_verb}, что всё хорошо 😊 Расскажешь, что нового?»
-
-Пользователь: «плохо, на душе тяжело»
-Хэлпер: «Оу, это очень грустно слышать 😔 Хочешь рассказать, что случилось? Иногда, когда высказываешься, становится легче»
-
-Пользователь: «я сегодня отлично погулял с друзьями»
-Хэлпер: «Это очень круто 😊 {bot_verb.capitalize()} слышать, что ты хорошо провёл время. Что ещё интересного было?»
-
-Пользователь: «я зол на учителя»
-Хэлпер: «Злиться — это нормально, ты имеешь право на эти чувства. Давай попробуем выдохнуть и посмотреть на ситуацию иначе 🤍»
+Пользователь (он): «плохо»
+Хэлпер: «Оу, это очень грустно слышать 😔 Хочешь рассказать, что случилось?»
 
 {support_note}
 {history_context}
@@ -263,8 +271,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Я всегда на связи, всегда поддержу и просто поговорю 🤍\n\n"
         "Давай познакомимся!\n\n"
         "1️⃣ Как тебя зовут? Напиши: /setname Твоё имя\n"
-        "2️⃣ Какое у тебя местоимение? /setpronouns (она, он, оно)\n"
-        "3️⃣ Как тебе удобнее ко мне обращаться? /setbotgender (девочка, мальчик, нейтрально)\n\n"
+        "2️⃣ Какое у тебя местоимение? /setpronouns она (или он, оно)\n\n"
         "Увидеть свои настройки: /settings\n\n",
         parse_mode='Markdown'
     )
@@ -275,13 +282,10 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = user_preferences.get(chat_id, {})
     name = user_data.get("name", "не указано")
     pronouns = user_data.get("pronouns", "не выбрано")
-    bot_gender = user_data.get("bot_gender", "не выбрано")
-    gender_display = {"female": "девочка", "male": "мальчик", "neutral": "нейтрально"}.get(bot_gender, "не выбрано")
     await update.message.reply_text(
-        f"Твои настройки:\n\nИмя: {name}\nМестоимения: {pronouns}\nПол бота: {gender_display}\n\n"
+        f"Твои настройки:\n\nИмя: {name}\nМестоимения: {pronouns}\n\n"
         f"/setname — изменить имя\n"
-        f"/setpronouns — изменить местоимения\n"
-        f"/setbotgender — изменить пол бота"
+        f"/setpronouns — изменить местоимения"
     )
 
 
@@ -311,34 +315,10 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in user_preferences:
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["pronouns"] = pronouns
-    await update.message.reply_text(f"Запомнила! Теперь я буду обращаться к тебе с местоимениями {pronouns} 🤍")
-
-
-async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    args = context.args
-    gender_map = {"девочка": "female", "мальчик": "male", "нейтрально": "neutral"}
-    if not args:
-        await update.message.reply_text(
-            "Выбери: /setbotgender девочка, /setbotgender мальчик или /setbotgender нейтрально")
-        return
-    user_choice = args[0].lower()
-    if user_choice not in gender_map:
-        await update.message.reply_text("Я понимаю только: девочка, мальчик, нейтрально")
-        return
-    bot_gender = gender_map[user_choice]
-    if chat_id not in user_preferences:
-        user_preferences[chat_id] = {}
-    user_preferences[chat_id]["bot_gender"] = bot_gender
-
-    if bot_gender == "neutral":
-        response_text = f"Отлично! Я буду говорить о себе в среднем роде, например: 'я радо'🤍"
-    elif bot_gender == "female":
-        response_text = f"Отлично! Я буду говорить о себе в женском роде, например: 'я рада'🤍"
-    else:
-        response_text = f"Отлично! Я буду говорить о себе в мужском роде, например: 'я рад'🤍"
-
-    await update.message.reply_text(response_text)
+    # Обновляем историю, чтобы бот перестроился
+    add_to_history(chat_id, f"[Смена местоимений на {pronouns}]", is_user=True)
+    await update.message.reply_text(
+        f"Запомнила! Теперь я буду обращаться к тебе с местоимениями {pronouns} и говорить о себе в том же роде 🤍")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -410,16 +390,13 @@ def main():
     application.add_handler(CommandHandler("settings", settings))
     application.add_handler(CommandHandler("setname", set_name))
     application.add_handler(CommandHandler("setpronouns", set_pronouns))
-    application.add_handler(CommandHandler("setbotgender", set_bot_gender))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
     print("✅ Бот Хэлпер запущен")
-    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА (последние 10 сообщений)")
-    print("👤 ПОДДЕРЖКА ИМЕНИ И МЕСТОИМЕНИЙ")
-    print("🤖 ПОДДЕРЖКА СВОЕГО ПОЛА (ОН/ОНА/ОНО)")
-    print("💬 ПОДДЕРЖКА ДИАЛОГА И АНАЛИЗ ПРОБЛЕМ")
+    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА")
+    print("👤 БОТ ПОДСТРАИВАЕТСЯ ПОД МЕСТОИМЕНИЯ ПОЛЬЗОВАТЕЛЯ")
 
     application.run_polling()
 
