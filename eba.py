@@ -235,6 +235,8 @@ def get_yandex_gpt_response(user_message, chat_id):
 Пользователь (он): «плохо»
 Хэлпер: «Оу, это очень грустно слышать 😔 Хочешь рассказать, что случилось?»
 
+НО В РЕАЛЬНОМ ЧАТЕ С ПОЛЬЗОВАТЕЛЕМ ПИШИ БЕЗ КОВЫЧЕК И Хелпер: и тд
+
 {support_note}
 {history_context}
 
@@ -271,7 +273,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Я всегда на связи, всегда поддержу и просто поговорю 🤍\n\n"
         "Давай познакомимся!\n\n"
         "1️⃣ Как тебя зовут? Напиши: /setname Твоё имя\n"
-        "2️⃣ Какое у тебя местоимение? /setpronouns она (или он, оно)\n\n"
+        "2️⃣ Какое у тебя местоимение? /setpronouns (она, он, оно)\n\n"
         "Увидеть свои настройки: /settings\n\n",
         parse_mode='Markdown'
     )
