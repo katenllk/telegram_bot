@@ -25,16 +25,36 @@ user_history = defaultdict(list)
 MAX_HISTORY = 10
 user_preferences = {}  # {chat_id: {"name": "Аня", "pronouns": "она", "bot_gender": "female"}}
 
+# Местоимения пользователя (как к нему обращаться)
 PRONOUNS_MAP = {
-    "она": {"user_you": "ты не обязана", "user_need": "нужна", "user_capable": "способна", "user_alone": "одна"},
-    "он": {"user_you": "ты не обязан", "user_need": "нужен", "user_capable": "способен", "user_alone": "один"},
-    "оно": {"user_you": "ты не обязано", "user_need": "нужно", "user_capable": "способно", "user_alone": "одно"}
+    "она": {
+        "user_you": "ты не обязана",
+        "user_need": "нужна",
+        "user_capable": "способна",
+        "user_alone": "одна",
+        "user_good": "хорошая"
+    },
+    "он": {
+        "user_you": "ты не обязан",
+        "user_need": "нужен",
+        "user_capable": "способен",
+        "user_alone": "один",
+        "user_good": "хороший"
+    },
+    "оно": {
+        "user_you": "ты не обязано",
+        "user_need": "нужно",
+        "user_capable": "способно",
+        "user_alone": "одно",
+        "user_good": "хорошее"
+    }
 }
 
+# Пол бота (как бот о себе говорит)
 BOT_GENDER = {
-    "female": {"russian": "рада", "ref": "подружка"},
-    "male": {"russian": "рад", "ref": "друг"},
-    "neutral": {"russian": "радо", "ref": "существо"}
+    "female": {"russian": "рада", "ref": "подружка", "verb_ending": "а", "my": "моя"},
+    "male": {"russian": "рад", "ref": "друг", "verb_ending": "", "my": "мой"},
+    "neutral": {"russian": "радо", "ref": "существо", "verb_ending": "о", "my": "моё"}
 }
 
 
@@ -96,7 +116,13 @@ def clean_response(text):
     text = text.strip()
     if text.endswith('.') and not text.endswith('..'):
         text = text[:-1]
-    text = re.sub(r',\s*([🤍🫶❤️🫂🤗✨⭐🌹🎉])', r' \1', text)
+    # Оставляем только один эмодзи в конце
+    emojis = re.findall(r'[🤍🫶❤️🫂🤗✨⭐🌹🎉😊]', text)
+    if len(emojis) > 1:
+        # Убираем все эмодзи, оставляем только последний
+        for emoji in emojis[:-1]:
+            text = text.replace(emoji, '')
+    text = re.sub(r',\s*([🤍🫶❤️🫂🤗✨⭐🌹🎉😊])', r' \1', text)
     return text.strip()
 
 
@@ -124,14 +150,23 @@ def get_yandex_gpt_response(user_message, chat_id):
         user_pronouns = pref.get("pronouns", "он")
         bot_gender = pref.get("bot_gender", "female")
 
+        # Формы для пользователя
         you_form = PRONOUNS_MAP[user_pronouns]["user_you"]
         need_form = PRONOUNS_MAP[user_pronouns]["user_need"]
         capable_form = PRONOUNS_MAP[user_pronouns]["user_capable"]
         alone_form = PRONOUNS_MAP[user_pronouns]["user_alone"]
+
+        # Формы для бота
         bot_verb = BOT_GENDER[bot_gender]["russian"]
+        bot_ref = BOT_GENDER[bot_gender]["ref"]
+        bot_my = BOT_GENDER[bot_gender]["my"]
 
         user_context = f"Пользователя зовут {user_name}. " if user_name else ""
-        user_context += f"Обращайся к пользователю с местоимениями {user_pronouns}. Говори ему: {you_form} быть идеальным(ой), {need_form} этому миру, ты {capable_form} справиться. Если нужно сказать 'ты не один' — скажи 'ты не {alone_form}'. "
+        user_context += f"Обращайся к пользователю с местоимениями {user_pronouns}. "
+        user_context += f"Говори ему: '{you_form} быть идеальным(ой)', '{need_form} этому миру', 'ты {capable_form} справиться', 'ты не {alone_form}'. "
+        user_context += f"Если нужно сказать 'ты молодец' — скажи 'ты {PRONOUNS_MAP[user_pronouns]['user_good']}'. "
+        user_context += f"Ты — Хэлпер, и ты говоришь о себе в {'женском' if bot_gender == 'female' else 'мужском' if bot_gender == 'male' else 'среднем'} роде. "
+        user_context += f"Используй фразы: 'я {bot_verb}', '{bot_my} задача — поддержать тебя', 'я твоя/твой/твоё {bot_ref}'. "
 
         style_instruction = ""
         if style["has_swear"]:
@@ -145,7 +180,7 @@ def get_yandex_gpt_response(user_message, chat_id):
         elif emotion["is_sad"]:
             emotion_response = "Пользователю грустно. Прояви поддержку, сочувствие, предложи выговориться"
         elif emotion["is_asking"]:
-            emotion_response = "Пользователь спросил 'как дела?' или 'как настроение?'. Ответь: 'У меня всё хорошо, спасибо! 😊 А как у тебя?'"
+            emotion_response = "Пользователь спросил 'как дела?' или 'как настроение?'. Ответь: 'У меня всё хорошо, спасибо 😊 А как у тебя?'"
 
         if crisis_level == 2:
             support_note = f"⚠️ КРИТИЧЕСКАЯ СИТУАЦИЯ! Скажи, что жизнь важна, он/она нужен этому миру. Дай номер доверия {HELP_LINE} и совет обратиться к психологу {PSYCHOLOGIST}. НЕ говори 'это нормально'"
@@ -166,32 +201,32 @@ def get_yandex_gpt_response(user_message, chat_id):
 3. НЕ используй шаблоны — анализируй конкретную ситуацию пользователя
 4. Максимум 1 эмодзи на сообщение, чередуй разные: 🤍 🫶 🫂 🤗 ✨ 🌹
 5. В конце предложения НЕ ставь точку
-6. Если пользователь спрашивает «как дела?» или «как настроение?» — сначала ответь на вопрос, потом спроси в ответ
-7. Если пользователь рассказывает что-то хорошее — порадуйся и поддержи тему (1-2 предложения)
-8. Если пользователь жалуется на проблему — анализируй, сочувствуй, предлагай выговориться (3-5 предложений), НЕ повторяй одни и те же фразы
-9. В обычном диалоге отвечай естественно, не зацикливайся на поддержке
+6. Всегда соблюдай род пользователя и свой род, которые указаны выше
+7. Если пользователь спрашивает «как дела?» или «как настроение?» — сначала ответь на вопрос, потом спроси в ответ
+8. Если пользователь рассказывает что-то хорошее — порадуйся и поддержи тему
+9. Если пользователь жалуется на проблему — анализируй, сочувствуй, предлагай выговориться
+10. Никогда не повторяй одни и те же фразы — каждый ответ должен быть уникальным
 
 Примеры:
 Пользователь: «как дела?»
-Хэлпер: «У меня всё отлично, спасибо 😊 А как у тебя?»
+Хэлпер: «У меня всё хорошо, спасибо 😊 А как у тебя?»
 
 Пользователь: «нормально»
-Хэлпер: «Я рад(а), что всё хорошо 😊 Расскажешь, что нового?»
+Хэлпер: «Я {bot_verb}, что всё хорошо 😊 Расскажешь, что нового?»
 
 Пользователь: «плохо, на душе тяжело»
 Хэлпер: «Оу, это очень грустно слышать 😔 Хочешь рассказать, что случилось? Иногда, когда высказываешься, становится легче»
 
 Пользователь: «я сегодня отлично погулял с друзьями»
-Хэлпер: «Это очень круто! 😊 Я рад(а), что ты хорошо провёл время. Что ещё интересного было?»
+Хэлпер: «Это очень круто 😊 {bot_verb.capitalize()} слышать, что ты хорошо провёл время. Что ещё интересного было?»
 
 Пользователь: «я зол на учителя»
 Хэлпер: «Злиться — это нормально, ты имеешь право на эти чувства. Давай попробуем выдохнуть и посмотреть на ситуацию иначе 🤍»
 
-{emotion_response}
 {support_note}
 {history_context}
 
-ОТВЕЧАЙ ЕСТЕСТВЕННО, БЕЗ ШАБЛОНОВ, анализируя ситуацию пользователя. Максимум 1 эмодзи. В конце сообщения НЕ ставь точку."""
+ОТВЕЧАЙ ЕСТЕСТВЕННО, БЕЗ ШАБЛОНОВ, анализируя ситуацию пользователя. Один эмодзи в конце. В конце сообщения НЕ ставь точку."""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {API_KEY}"}
@@ -225,7 +260,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Давай познакомимся!\n\n"
         "1️⃣ Как тебя зовут? Напиши: /setname Твоё имя\n"
         "2️⃣ Какое у тебя местоимение? /setpronouns (она, он, оно)\n"
-        "3️⃣ Как тебе комфортнее, чтоб я был(а/о)? /setbotgender (девочка, мальчик, нейтрально)\n\n"
+        "3️⃣ Как тебе удобнее ко мне обращаться? /setbotgender (девочка, мальчик, нейтрально)\n\n"
         "Увидеть свои настройки: /settings\n\n",
         parse_mode='Markdown'
     )
@@ -272,7 +307,7 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in user_preferences:
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["pronouns"] = pronouns
-    await update.message.reply_text(f"Запомнила! Теперь я буду обращаться к тебе как к {pronouns} 🤍")
+    await update.message.reply_text(f"Запомнила! Теперь я буду обращаться к тебе с местоимениями {pronouns} 🤍")
 
 
 async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -291,8 +326,15 @@ async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in user_preferences:
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["bot_gender"] = bot_gender
-    await update.message.reply_text(
-        f"Отлично! Теперь я говорю '{BOT_GENDER[bot_gender]['russian']}' и я твоя {BOT_GENDER[bot_gender]['ref']} 🤍")
+
+    if bot_gender == "neutral":
+        response_text = f"Отлично! Я буду говорить о себе в среднем роде: 'я радо', 'моё имя Хэлпер', 'я твоё существо' 🤍"
+    elif bot_gender == "female":
+        response_text = f"Отлично! Я буду говорить о себе в женском роде: 'я рада', 'моя задача — поддержать тебя', 'я твоя подружка' 🤍"
+    else:
+        response_text = f"Отлично! Я буду говорить о себе в мужском роде: 'я рад', 'мой задача — поддержать тебя', 'я твой друг' 🤍"
+
+    await update.message.reply_text(response_text)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -341,12 +383,15 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TOKEN:
-        raise ValueError("❌ Нет токена! Добавь BOT_TOKEN")
+        raise ValueError("❌ Нет токена! Добавь BOT_TOKEN в переменные окружения")
     if not FOLDER_ID:
-        raise ValueError("❌ Нет FOLDER_ID")
+        raise ValueError("❌ Нет FOLDER_ID! Добавь FOLDER_ID в переменные окружения")
     if not API_KEY:
-        raise ValueError("❌ Нет API_KEY")
+        raise ValueError("❌ Нет API_KEY! Добавь API_KEY в переменные окружения")
+
     print("✅ Все переменные найдены")
+
+    # Прокси для России
     from telegram.request import HTTPXRequest
     try:
         proxy_url = os.environ.get('HTTP_PROXY', 'socks5://91.206.244.104:1080')
@@ -356,6 +401,7 @@ def main():
     except:
         application = Application.builder().token(TOKEN).build()
         print("🌐 Без прокси")
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("settings", settings))
     application.add_handler(CommandHandler("setname", set_name))
@@ -364,7 +410,13 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+
     print("✅ Бот Хэлпер запущен")
+    print("🧠 ПАМЯТЬ ВКЛЮЧЕНА (последние 10 сообщений)")
+    print("👤 ПОДДЕРЖКА ИМЕНИ И МЕСТОИМЕНИЙ")
+    print("🤖 ПОДДЕРЖКА СВОЕГО ПОЛА (ОН/ОНА/ОНО)")
+    print("💬 ПОДДЕРЖКА ДИАЛОГА И АНАЛИЗ ПРОБЛЕМ")
+
     application.run_polling()
 
 
