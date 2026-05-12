@@ -115,8 +115,7 @@ def get_yandex_gpt_response(user_message, chat_id):
 1. **НИКОГДА НЕ ИСПОЛЬЗУЙ ЭТИ ФРАЗЫ** (они уже надоели):
    - любые шаблонные психологические фразы
 
-2. **ОТВЕЧАЙ КАК ПОДРОСТОК/МОЛОДОЙ ЧЕЛОВЕК**:
-   - Используй слова: "ахаха", "жесть", "норм", "оке", "лан", "бро"
+2. **ОТВЕЧАЙ КАК ДРУГ-ЭМПАТ**:
    - Пиши коротко и по делу
    - Без пафоса и нравоучений
    - Можно использовать лёгкий сарказм, если уместно
@@ -129,11 +128,11 @@ def get_yandex_gpt_response(user_message, chat_id):
 4. **ЭМОДЗИ** (используй редко, только когда реально нужно):
    - ❤️ — для поддержки или просто так
    - 💔 — если пользователю реально больно/грустно/обидно
-   - Можно вообще без эмодзи
+   - Можно вообще без эмодзи или текстовые например :) или :( или <3 (типа как сердечко) и т.д.
 
 5. **РАЗНООБРАЗИЕ**:
    - Каждый ответ должен быть уникальным
-   - Не повторяй one и ту же структуру
+   - Не повторяй одну и ту же структуру
    - Иногда просто соглашайся, иногда задавай вопросы, иногда делись своим "мнением"
 
 6. **РЕАКЦИЯ НА МЕМЫ/ШУТКИ**:
@@ -145,7 +144,7 @@ def get_yandex_gpt_response(user_message, chat_id):
 
 Сейчас пользователь написал: "{user_message}"
 
-Напиши свой естественный ответ (как подросток, без шаблонов, с правильными окончаниями твоего пола):"""
+Напиши свой естественный ответ (как друг-эмпат, без шаблонов, с правильными окончаниями твоего пола):"""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {
@@ -175,18 +174,16 @@ def get_yandex_gpt_response(user_message, chat_id):
             return bot_response
         else:
             fallbacks = [
-                "не врубилась, повтори 🙏",
-                "чё? не понял, напиши ещё раз",
-                "а? перешли"
+                "чет я туплю, повтори пж🙏",
+                "блииин собака прошлое соо съела, можешь пожалуйста повторить(("
             ]
             return random.choice(fallbacks)
 
     except Exception as e:
         logging.error(f"Ошибка: {e}")
         fallbacks = [
-            "что-то пошло не так.. давай ещё раз",
-            "ошибка какая-то, напиши снова",
-            "не получилось ответить, сори"
+            "чет я туплю, повтори пж🙏",
+            "блииин собака прошлое соо съела, можешь пожалуйста повторить(("
         ]
         return random.choice(fallbacks)
 
@@ -199,13 +196,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {"bot_gender": "нейтральный"}
 
     await update.message.reply_text(
-        f"👋 привет! я Хэлпер — твой друг\n\n"
+        f"👋 привеет! Меня зовут Хэлпер!))\n\n"
         "давай познакомимся:\n"
         "/setname твоё имя — как тебя зовут\n"
         "/setpronouns он/она/оно — твоё местоимение\n"
         "/setbotgender мужской/женский/нейтральный — как ко мне обращаться\n"
         "/settings — посмотреть настройки\n\n"
-        f"если совсем тяжело — {PSYCHOLOGIST} или {HELP_LINE} ❤️"
+        "Я всегда на связи, можешь писать мне в любое время!!"
     )
 
 
@@ -242,7 +239,7 @@ async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["name"] = name
 
-    await update.message.reply_text(f"запомнила, {name} 🤝")
+    await update.message.reply_text(f"запомнила, {name} <3")
 
 
 async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,7 +260,7 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["pronouns"] = pronouns
 
-    await update.message.reply_text(f"ок, теперь буду обращаться к тебе как '{pronouns}' 💪")
+    await update.message.reply_text(f"ок, теперь буду обращаться к тебе как '{pronouns}' :)")
 
 
 async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -331,7 +328,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_to_history(chat_id, f"[фото] {caption}", is_user=True)
         response = get_yandex_gpt_response(caption, chat_id)
     else:
-        response = "красивое фото 👋 расскажи, что там?"
+        response = "о круто, расскажешь по подробнее, что на фотке?"
 
     add_to_history(chat_id, response, is_user=False)
     await update.message.reply_text(response)
@@ -340,9 +337,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     response = random.choice([
-        "милый стикер 👋 как ты?",
-        "понял 🙏 рассказывай",
-        "😊 как настроение?"
+        "мили стикер :)",
+        "понял 🙏 расскажешь?",
+        "как настроение?"
     ])
 
     add_to_history(chat_id, "[стикер]", is_user=True)
