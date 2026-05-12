@@ -21,27 +21,21 @@ FOLDER_ID = os.environ.get('FOLDER_ID')
 API_KEY = os.environ.get('API_KEY')
 TOKEN = os.environ.get('BOT_TOKEN')
 
-# Нормальные эмодзи
-EMOJIS = ['❤️', '🔥', '👎', '👍', '🙏', '💕', '🫶', '🥺', '👋', '💔', '❤️‍🩹', '😊', '😔', '💪', '✨']
-
-
-def get_random_emojis(count=1):
-    selected = random.sample(EMOJIS, min(count, len(EMOJIS)))
-    return ' '.join(selected)
-
+# Минимальные эмодзи
+EMOJIS = ['❤️', '💔']
 
 # ========== ПАМЯТЬ ==========
 user_history = defaultdict(list)
 MAX_HISTORY = 15
 
 # ========== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ ==========
-user_preferences = {}  # {chat_id: {"name": "Ваня", "pronouns": "он", "bot_gender": "нейтральный"}}
+user_preferences = {}  # {chat_id: {"name": "Аня", "pronouns": "она", "bot_gender": "женский"}}
 
 # Гендерные окончания для бота
 BOT_GENDERS = {
-    "мужской": {"я": "я", "окончание": "", "себя": "себя"},
-    "женский": {"я": "я", "окончание": "а", "себя": "себя"},
-    "нейтральный": {"я": "я", "окончание": "о", "себя": "себя"}
+    "мужской": {"окончание": "", "местоимение": "я", "глагол": "сказал", "себя": "себя"},
+    "женский": {"окончание": "а", "местоимение": "я", "глагол": "сказала", "себя": "себя"},
+    "нейтральный": {"окончание": "о", "местоимение": "я", "глагол": "сказало", "себя": "себя"}
 }
 
 
@@ -72,21 +66,20 @@ def clean_response(text):
 
 
 def get_user_context(chat_id):
-    """Возвращает контекст пользователя с правильными склонениями"""
     pref = user_preferences.get(chat_id, {})
     name = pref.get("name", "")
     pronouns = pref.get("pronouns", "")
 
     context = ""
     if name:
-        context += f"Пользователя зовут {name}. "
+        context += f"Пользователя зовут {name}. Можешь иногда обращаться по имени, но не в каждом сообщении. "
 
     if pronouns == "он":
-        context += "Пользователь мужского пола. В общении используй: он, его, ему. Пиши окончания 'ый', 'ой', 'ешься' (например: сильный, справишься, молодец). "
+        context += "Пользователь мужского пола. Пиши с мужскими окончаниями: 'сильный', 'справишься', 'какой молодец'. "
     elif pronouns == "она":
-        context += "Пользователь женского пола. В общении используй: она, её, ей. Пиши окончания 'ая', 'ая', 'ешься' (например: сильная, справишься, молодец). "
+        context += "Пользователь женского пола. Пиши с женскими окончаниями: 'сильная', 'справишься', 'какая молодец'. "
     elif pronouns == "оно":
-        context += "Пользователь использует нейтральные местоимения. В общении используй: оно, его, ему. Пиши окончания 'ое', 'ое', 'ешься' (например: сильное, справишься, молодец). "
+        context += "Пользователь использует нейтральные местоимения. Пиши с нейтральными окончаниями: 'сильное', 'справишься', 'какое молодец'. "
 
     return context, name, pronouns
 
@@ -101,53 +94,58 @@ def get_yandex_gpt_response(user_message, chat_id):
         # Настройки бота
         bot_pref = user_preferences.get(chat_id, {})
         bot_gender = bot_pref.get("bot_gender", "нейтральный")
-        bot_ending = BOT_GENDERS[bot_gender]["окончание"]
+        bot_info = BOT_GENDERS[bot_gender]
 
-        system_prompt = f"""Ты — Хэлпер, виртуальный друг. Ты общаешься с пользователем как настоящий друг.
+        # Случайная температура для разнообразия
+        temperature = random.uniform(0.85, 0.98)
+
+        system_prompt = f"""Ты — Хэлпер, виртуальный друг. Ты общаешься с пользователем как друг.
 
 {user_context}
 
-Твой пол: {bot_gender}. Пиши с окончаниями: понял{bot_ending}, сказал{bot_ending}, подумал{bot_ending}.
+⚠️ ТВОЙ ПОЛ (НЕ ЗАБЫВАЙ ЭТО В КАЖДОМ ОТВЕТЕ): ты {bot_gender}.
+- Если ты мужской: пиши "понял", "сказал", "думал", "пошел", "сделал"
+- Если ты женский: пиши "поняла", "сказала", "думала", "пошла", "сделала"
+- Если ты нейтральный: пиши "поняло", "сказало", "думало", "пошло", "сделало"
 
-ГЛАВНОЕ ПРАВИЛО:
-Ты сам анализируешь ситуацию. Не используешь заготовленные фразы. Ты смотришь на:
-- о чём пишет пользователь (тема разговора)
-- как он пишет (коротко или длинно)
-- его эмоции (грусть, радость, злость)
-- контекст из истории диалога
+ВСЕГДА используй эти окончания. Никогда не путай.
 
-И на основе этого ты генерируешь СВОЙ уникальный ответ, а не берёшь из примеров.
+ГЛАВНЫЕ ПРАВИЛА:
 
-ДЛИНА ОТВЕТА:
-- Если пользователь написал коротко (1-5 слов) → отвечай коротко (1-10 слов)
-- Если пользователь написал длинно (предложение или больше) → отвечай 3-5 предложениями
+1. **НИКОГДА НЕ ИСПОЛЬЗУЙ ЭТИ ФРАЗЫ** (они уже надоели):
+   - любые шаблонные психологические фразы
 
-КАК ИСПОЛЬЗОВАТЬ ИМЯ:
-Если знаешь имя пользователя — иногда используй его в ответе, но не в каждом сообщении. Например: "Ваня, не переживай" или "Слушай, Ваня, всё будет нормально"
+2. **ОТВЕЧАЙ КАК ПОДРОСТОК/МОЛОДОЙ ЧЕЛОВЕК**:
+   - Используй слова: "ахаха", "жесть", "норм", "оке", "лан", "бро"
+   - Пиши коротко и по делу
+   - Без пафоса и нравоучений
+   - Можно использовать лёгкий сарказм, если уместно
 
-КАК ИСПОЛЬЗОВАТЬ МЕСТОИМЕНИЯ:
-Пользователь выбрал местоимения (он/она/оно). Пиши в соответствии с ними:
-- он → "ты сильный", "ты справишься", "какой ты молодец"
-- она → "ты сильная", "ты справишься", "какая ты молодец"
-- оно → "ты сильное", "ты справишься", "какое ты молодец"
+3. **ДЛИНА ОТВЕТА**:
+   - На короткое сообщение (1-5 слов) → 1-10 слов
+   - На обычное сообщение → 1-2 предложения
+   - Если пользователь написал длинную историю → 4-5 предложений
 
-ЭМОДЗИ (используй РАЗНООБРАЗНО, но не в каждом сообщении):
-❤️ 🔥 👍 👎 🙏 💕 🫶 🥺 👋 💔 ❤️‍🩹 💪 ✨
-- К грустному: 💔
-- К поддержке: ❤️‍🩹
-- К радостному: ❤️ или 🔥
-- Не используй радуги, солнышки, цветочки
+4. **ЭМОДЗИ** (используй редко, только когда реально нужно):
+   - ❤️ — для поддержки или просто так
+   - 💔 — если пользователю реально больно/грустно/обидно
+   - Можно вообще без эмодзи
 
-Если пользователь просит сменить твой пол фразами "будь парнем", "ты парень", "будь девушкой", "ты нейтральное" — соглашайся и пиши "Хорошо, я понял" или "Хорошо, я поняла"
+5. **РАЗНООБРАЗИЕ**:
+   - Каждый ответ должен быть уникальным
+   - Не повторяй one и ту же структуру
+   - Иногда просто соглашайся, иногда задавай вопросы, иногда делись своим "мнением"
 
-ВАЖНО: Никогда не копируй фразы из этого промта в ответы. Генерируй уникальные ответы каждый раз.
+6. **РЕАКЦИЯ НА МЕМЫ/ШУТКИ**:
+   - Если пользователь шутит или кидает мем — отвечай типа "ХАХАХАХ ", "жесть", "ахахахах"
+   - Не будь слишком серьёзным
 
-История диалога (для контекста):
+История диалога:
 {history_context}
 
-Пользователь написал: "{user_message}"
+Сейчас пользователь написал: "{user_message}"
 
-Напиши свой естественный ответ:"""
+Напиши свой естественный ответ (как подросток, без шаблонов, с правильными окончаниями твоего пола):"""
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {
@@ -159,8 +157,8 @@ def get_yandex_gpt_response(user_message, chat_id):
             "modelUri": f"gpt://{FOLDER_ID}/yandexgpt-lite",
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.95,
-                "maxTokens": 400
+                "temperature": temperature,
+                "maxTokens": 350
             },
             "messages": [
                 {"role": "system", "text": system_prompt},
@@ -176,11 +174,21 @@ def get_yandex_gpt_response(user_message, chat_id):
             bot_response = clean_response(bot_response)
             return bot_response
         else:
-            return f"Не врубился, сори 🙏 Повтори?"
+            fallbacks = [
+                "не врубилась, повтори 🙏",
+                "чё? не понял, напиши ещё раз",
+                "а? перешли"
+            ]
+            return random.choice(fallbacks)
 
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        return f"Что-то пошло не так 😔 Напиши ещё раз"
+        fallbacks = [
+            "что-то пошло не так.. давай ещё раз",
+            "ошибка какая-то, напиши снова",
+            "не получилось ответить, сори"
+        ]
+        return random.choice(fallbacks)
 
 
 # ========== КОМАНДЫ БОТА ==========
@@ -191,14 +199,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {"bot_gender": "нейтральный"}
 
     await update.message.reply_text(
-        f"👋 Привет! Я Хэлпер — твой друг\n\n"
-        "Давай познакомимся:\n"
-        "/setname Твоё имя — как тебя зовут\n"
-        "/setpronouns он/она/оно — твоё местоимение (одно, не несколько)\n"
+        f"👋 привет! я Хэлпер — твой друг\n\n"
+        "давай познакомимся:\n"
+        "/setname твоё имя — как тебя зовут\n"
+        "/setpronouns он/она/оно — твоё местоимение\n"
         "/setbotgender мужской/женский/нейтральный — как ко мне обращаться\n"
         "/settings — посмотреть настройки\n\n"
-        f"Если тяжело — {PSYCHOLOGIST} или {HELP_LINE} ❤️",
-        parse_mode='Markdown'
+        f"если совсем тяжело — {PSYCHOLOGIST} или {HELP_LINE} ❤️"
     )
 
 
@@ -211,11 +218,11 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_gender = user_data.get("bot_gender", "нейтральный")
 
     await update.message.reply_text(
-        f"Твои настройки:\n\n"
-        f"Имя: {name}\n"
-        f"Твоё местоимение: {pronouns}\n"
-        f"Мой пол: {bot_gender}\n\n"
-        f"/setname Имя — изменить имя\n"
+        f"твои настройки:\n\n"
+        f"имя: {name}\n"
+        f"твоё местоимение: {pronouns}\n"
+        f"мой пол: {bot_gender}\n\n"
+        f"/setname имя — изменить имя\n"
         f"/setpronouns он/она/оно — изменить местоимение\n"
         f"/setbotgender мужской/женский/нейтральный — изменить мой пол"
     )
@@ -226,7 +233,7 @@ async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not args:
-        await update.message.reply_text("Напиши имя после команды, например: /setname Аня")
+        await update.message.reply_text("напиши имя после команды, например: /setname Аня")
         return
 
     name = " ".join(args)
@@ -235,7 +242,7 @@ async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["name"] = name
 
-    await update.message.reply_text(f"Запомнил, {name} 🤝")
+    await update.message.reply_text(f"запомнила, {name} 🤝")
 
 
 async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,20 +250,20 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not args:
-        await update.message.reply_text("Выбери: /setpronouns он, /setpronouns она или /setpronouns оно")
+        await update.message.reply_text("выбери: /setpronouns он, /setpronouns она или /setpronouns оно")
         return
 
     pronouns = args[0].lower()
 
     if pronouns not in ["он", "она", "оно"]:
-        await update.message.reply_text("Я понимаю только: он, она, оно")
+        await update.message.reply_text("я понимаю только: он, она, оно")
         return
 
     if chat_id not in user_preferences:
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["pronouns"] = pronouns
 
-    await update.message.reply_text(f"Понял, теперь буду обращаться к тебе как к '{pronouns}' 💪")
+    await update.message.reply_text(f"ок, теперь буду обращаться к тебе как '{pronouns}' 💪")
 
 
 async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,25 +272,26 @@ async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not args:
         await update.message.reply_text(
-            "Выбери: /setbotgender мужской, /setbotgender женский или /setbotgender нейтральный")
+            "выбери: /setbotgender мужской, /setbotgender женский или /setbotgender нейтральный")
         return
 
     gender = args[0].lower()
 
     if gender not in ["мужской", "женский", "нейтральный"]:
-        await update.message.reply_text("Я понимаю только: мужской, женский, нейтральный")
+        await update.message.reply_text("я понимаю только: мужской, женский, нейтральный")
         return
 
     if chat_id not in user_preferences:
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["bot_gender"] = gender
 
-    if gender == "мужской":
-        await update.message.reply_text("Хорошо, я понял, теперь я парень 🤝")
-    elif gender == "женский":
-        await update.message.reply_text("Хорошо, я поняла, теперь я девушка 💕")
-    else:
-        await update.message.reply_text("Хорошо, я понял, буду нейтральным ✨")
+    endings = {
+        "мужской": "понял, теперь я парень 🤝",
+        "женский": "поняла, теперь я девушка 💕",
+        "нейтральный": "поняло, буду нейтральным ✨"
+    }
+
+    await update.message.reply_text(endings[gender])
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -294,15 +302,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lower_text = user_text.lower()
     if "будь парнем" in lower_text or "ты парень" in lower_text:
         user_preferences[chat_id]["bot_gender"] = "мужской"
-        await update.message.reply_text("Хорошо, я понял, теперь я парень 🤝")
+        await update.message.reply_text("понял, теперь я парень 🤝")
         return
     elif "будь девушкой" in lower_text or "ты девушка" in lower_text:
         user_preferences[chat_id]["bot_gender"] = "женский"
-        await update.message.reply_text("Хорошо, я поняла, теперь я девушка 💕")
+        await update.message.reply_text("поняла, теперь я девушка 💕")
         return
     elif "будь нейтральным" in lower_text or "ты нейтральное" in lower_text:
         user_preferences[chat_id]["bot_gender"] = "нейтральный"
-        await update.message.reply_text("Хорошо, я понял, буду нейтральным ✨")
+        await update.message.reply_text("поняло, буду нейтральным ✨")
         return
 
     add_to_history(chat_id, user_text, is_user=True)
@@ -320,10 +328,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = update.message.caption if update.message.caption else ""
 
     if caption:
-        add_to_history(chat_id, f"[Фото] {caption}", is_user=True)
+        add_to_history(chat_id, f"[фото] {caption}", is_user=True)
         response = get_yandex_gpt_response(caption, chat_id)
     else:
-        response = f"Красивое фото 👋 Расскажи, что на нём?"
+        response = "красивое фото 👋 расскажи, что там?"
 
     add_to_history(chat_id, response, is_user=False)
     await update.message.reply_text(response)
@@ -332,39 +340,39 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     response = random.choice([
-        f"Милый стикер 👋 Как ты?",
-        f"Понял 🙏 Рассказывай",
-        f"😊 Как настроение?"
+        "милый стикер 👋 как ты?",
+        "понял 🙏 рассказывай",
+        "😊 как настроение?"
     ])
 
-    add_to_history(chat_id, f"[Стикер]", is_user=True)
+    add_to_history(chat_id, "[стикер]", is_user=True)
     add_to_history(chat_id, response, is_user=False)
     await update.message.reply_text(response)
 
 
 def main():
     if not TOKEN:
-        raise ValueError("❌ Ошибка: нет BOT_TOKEN в переменных окружения")
+        raise ValueError("❌ нет токена! добавь BOT_TOKEN")
     if not FOLDER_ID:
-        raise ValueError("❌ Ошибка: нет FOLDER_ID в переменных окружения")
+        raise ValueError("❌ нет FOLDER_ID!")
     if not API_KEY:
-        raise ValueError("❌ Ошибка: нет API_KEY в переменных окружения")
+        raise ValueError("❌ нет API_KEY!")
 
-    print("✅ Бот Хэлпер запускается...")
-    print("🧠 Анализирует контекст сам, без примеров")
-    print("👤 Учитывает имя и местоимение пользователя")
-    print("🔄 Можно менять пол бота")
-    print("❤️ Эмодзи: только нормальные")
+    print("✅ бот Хэлпер запускается...")
+    print("🧠 подростковый стиль общения")
+    print("🚫 без шаблонных фраз")
+    print("🎲 повышенное разнообразие ответов")
+    print("💪 бот помнит свой гендер")
 
     from telegram.request import HTTPXRequest
     try:
         proxy_url = os.environ.get('HTTP_PROXY', 'socks5://91.206.244.104:1080')
         request = HTTPXRequest(proxy_url=proxy_url)
         application = Application.builder().token(TOKEN).request(request).build()
-        print("🌐 Прокси включён")
+        print("🌐 прокси включён")
     except:
         application = Application.builder().token(TOKEN).build()
-        print("🌐 Без прокси")
+        print("🌐 без прокси")
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("settings", settings))
@@ -375,7 +383,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-    print("✅ Бот готов!")
+    print("✅ бот готов!")
     application.run_polling()
 
 
