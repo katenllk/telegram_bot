@@ -15,13 +15,14 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # Контакты психолога
 PSYCHOLOGIST = "школьный психолог"
 HELP_LINE = "8-800-2000-122"
+HELP_LINE_DESC = "анонимно, бесплатно, круглосуточно, там тебе обязательно помогут и не осудят."
 
 # Данные для Yandex GPT
 FOLDER_ID = os.environ.get('FOLDER_ID')
 API_KEY = os.environ.get('API_KEY')
 TOKEN = os.environ.get('BOT_TOKEN')
 
-# Минимальные эмодзи
+# Эмодзи
 EMOJIS = ['❤️', '💔']
 
 # ========== ПАМЯТЬ ==========
@@ -29,14 +30,34 @@ user_history = defaultdict(list)
 MAX_HISTORY = 15
 
 # ========== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЕЙ ==========
-user_preferences = {}  # {chat_id: {"name": "Аня", "pronouns": "она", "bot_gender": "женский"}}
+user_preferences = {}
 
-# Гендерные окончания для бота
 BOT_GENDERS = {
-    "мужской": {"окончание": "", "местоимение": "я", "глагол": "сказал", "себя": "себя"},
-    "женский": {"окончание": "а", "местоимение": "я", "глагол": "сказала", "себя": "себя"},
-    "нейтральный": {"окончание": "о", "местоимение": "я", "глагол": "сказало", "себя": "себя"}
+    "мужской": {"окончание": "", "глагол": "сказал"},
+    "женский": {"окончание": "а", "глагол": "сказала"},
+    "нейтральный": {"окончание": "о", "глагол": "сказало"}
 }
+
+# ========== ПРОВЕРКА НА СУИЦИД ==========
+SUICIDE_KEYWORDS = [
+    # Прямые
+    "суицид", "самоубийство", "покончить с собой", "убью себя",
+    "хочу умереть", "умру", "убьюсь",
+    # Намёки
+    "держил нож", "нож в руке", "режу вены", "вены режу",
+    "прыгну с крыши", "выпью таблетки", "передоз",
+    "хватит жить", "не хочу жить", "жизнь не имеет смысла",
+    "лучше бы я умер", "лучше бы меня не было", "не вижу смысла", "всё бессмысленно"
+]
+
+
+def detect_suicide_risk(text):
+    """Определяет суицидальный риск"""
+    text_lower = text.lower()
+    for keyword in SUICIDE_KEYWORDS:
+        if keyword in text_lower:
+            return True
+    return False
 
 
 def add_to_history(chat_id, message, is_user=True):
@@ -72,45 +93,55 @@ def get_user_context(chat_id):
 
     context = ""
     if name:
-        context += f"Пользователя зовут {name}. Можешь иногда обращаться по имени, но не в каждом сообщении. "
+        context += f"Пользователя зовут {name}. Можешь иногда обращаться по имени. "
 
     if pronouns == "он":
-        context += "Пользователь мужского пола. Пиши с мужскими окончаниями: 'сильный', 'справишься', 'какой молодец'. "
+        context += "Пользователь мужского пола. Пиши 'сильный', 'справишься', 'какой молодец'. "
     elif pronouns == "она":
-        context += "Пользователь женского пола. Пиши с женскими окончаниями: 'сильная', 'справишься', 'какая молодец'. "
+        context += "Пользователь женского пола. Пиши 'сильная', 'справишься', 'какая молодец'. "
     elif pronouns == "оно":
-        context += "Пользователь использует нейтральные местоимения. Пиши с нейтральными окончаниями: 'сильное', 'справишься', 'какое молодец'. "
+        context += "Пользователь нейтрального пола. Пиши 'сильное', 'справишься', 'какое молодец'. "
 
     return context, name, pronouns
 
 
-def get_yandex_gpt_response(user_message, chat_id):
+def get_suicide_response():
+    """Ответ при суицидальном риске"""
+    responses = [
+        f"Пожалуйста, остановись. Твоя жизнь очень важна. Ничего страшнее смерти нет. Всегда есть выход. Пожалуйста обязательно позвони {HELP_LINE} ({HELP_LINE_DESC}) или обратись к {PSYCHOLOGIST} , я очень сильно переживаю за тебя❤️",
+        f"Я очень боюсь за тебя. Твоя жизнь — это самое ценное. Пожалуйста, не делай этого. Позвони {HELP_LINE} — там анонимно, бесплатно, 24/7. Или к {PSYCHOLOGIST} 💔",
+        f"Пожалуйста, не делай этого. Ни одна проблема не стоит твоей жизни. Пожалуйста обязательно позвони {HELP_LINE} ({HELP_LINE_DESC}) или обратись к {PSYCHOLOGIST} , я очень сильно переживаю за тебя❤️‍🩹",
+        f"Стоп. Твоя жизнь важна. Выход есть всегда. Нет ничего хуже смерти. Пожалуйста обязательно позвони {HELP_LINE} ({HELP_LINE_DESC}) или обратись к {PSYCHOLOGIST} , я очень сильно переживаю за тебя🙏"
+    ]
+    return random.choice(responses)
+
+
+def get_yandex_gpt_response(user_message, chat_id, is_suicide=False):
+    if is_suicide:
+        return get_suicide_response()
+
     try:
         time.sleep(0.3)
 
         history_context = get_history_for_prompt(chat_id)
         user_context, user_name, user_pronouns = get_user_context(chat_id)
 
-        # Настройки бота
         bot_pref = user_preferences.get(chat_id, {})
         bot_gender = bot_pref.get("bot_gender", "нейтральный")
         bot_info = BOT_GENDERS[bot_gender]
 
-        # Случайная температура для разнообразия
         temperature = random.uniform(0.85, 0.98)
 
-        system_prompt = f"""Ты — Хэлпер, виртуальный друг. Ты общаешься с пользователем как друг.
+        system_prompt = f"""Ты — Хэлпер, виртуальный друг-эмпат. Который всега на связи всегда поддержит в трудной ситуации или просто поддержит беседу.
 
 {user_context}
 
-⚠️ ТВОЙ ПОЛ (НЕ ЗАБЫВАЙ ЭТО В КАЖДОМ ОТВЕТЕ): ты {bot_gender}.
-- Если ты мужской: пиши "понял", "сказал", "думал", "пошел", "сделал"
-- Если ты женский: пиши "поняла", "сказала", "думала", "пошла", "сделала"
-- Если ты нейтральный: пиши "поняло", "сказало", "думало", "пошло", "сделало"
+⚠️ ТВОЙ ПОЛ (НЕ ЗАБЫВАЙ В КАЖДОМ СООБЩЕНИИ): ты {bot_gender}.
+- мужской: "понял", "сказал", "думал"
+- женский: "поняла", "сказала", "думала"
+- нейтральный: "поняло", "сказало", "думало"
 
-ВСЕГДА используй эти окончания. Никогда не путай.
-
-ГЛАВНЫЕ ПРАВИЛА:
+ПРАВИЛА:
 
 1. **НИКОГДА НЕ ИСПОЛЬЗУЙ ЭТИ ФРАЗЫ** (они уже надоели):
    - любые шаблонные психологические фразы
@@ -142,7 +173,7 @@ def get_yandex_gpt_response(user_message, chat_id):
 История диалога:
 {history_context}
 
-Сейчас пользователь написал: "{user_message}"
+Пользователь: {user_message}
 
 Напиши свой естественный ответ (как друг-эмпат, без шаблонов, с правильными окончаниями твоего пола):"""
 
@@ -173,18 +204,14 @@ def get_yandex_gpt_response(user_message, chat_id):
             bot_response = clean_response(bot_response)
             return bot_response
         else:
-            fallbacks = [
-                "чет я туплю, повтори пж🙏",
-                "блииин собака прошлое соо съела, можешь пожалуйста повторить(("
-            ]
+            fallbacks = ["чет я туплю, повтори пж🙏",
+            "блииин собака прошлое соо съела, можешь пожалуйста повторить(("]
             return random.choice(fallbacks)
 
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        fallbacks = [
-            "чет я туплю, повтори пж🙏",
-            "блииин собака прошлое соо съела, можешь пожалуйста повторить(("
-        ]
+        fallbacks = ["чет я туплю, повтори пж🙏",
+            "блииин собака прошлое соо съела, можешь пожалуйста повторить(("]
         return random.choice(fallbacks)
 
 
@@ -239,7 +266,8 @@ async def set_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["name"] = name
 
-    await update.message.reply_text(f"запомнила, {name} <3")
+    await update.message.reply_text(
+        f"запомнил{['', 'а', 'о'][user_preferences[chat_id].get('bot_gender', 'нейтральный') != 'мужской' and (user_preferences[chat_id].get('bot_gender', 'нейтральный') == 'женский' and 1 or 2)]}, {name} 🤝")
 
 
 async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,7 +288,7 @@ async def set_pronouns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_preferences[chat_id] = {}
     user_preferences[chat_id]["pronouns"] = pronouns
 
-    await update.message.reply_text(f"ок, теперь буду обращаться к тебе как '{pronouns}' :)")
+    await update.message.reply_text(f"ок, теперь буду обращаться к тебе как '{pronouns}' ))")
 
 
 async def set_bot_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,7 +323,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_text = update.message.text
 
-    # Обработка смены гендера бота через обычное сообщение
+    # Проверка на смену гендера бота
     lower_text = user_text.lower()
     if "будь парнем" in lower_text or "ты парень" in lower_text:
         user_preferences[chat_id]["bot_gender"] = "мужской"
@@ -310,10 +338,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("поняло, буду нейтральным ✨")
         return
 
+    # ⚠️ ГЛАВНОЕ: проверка на суицидальные мысли
+    is_suicide = detect_suicide_risk(user_text)
+
+    if is_suicide:
+        logging.warning(f"⚠️ СУИЦИДАЛЬНЫЙ РИСК от {chat_id}: {user_text[:200]}")
+        # Отправляем специальный ответ
+        bot_response = get_suicide_response()
+        add_to_history(chat_id, user_text, is_user=True)
+        add_to_history(chat_id, bot_response, is_user=False)
+        await update.message.reply_text(bot_response)
+
+        # Дополнительно логируем для контроля
+        print(f"🔴 КРИТИЧЕСКОЕ СООБЩЕНИЕ от {chat_id}")
+        return
+
+    # Обычная обработка
     add_to_history(chat_id, user_text, is_user=True)
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    bot_response = get_yandex_gpt_response(user_text, chat_id)
+    bot_response = get_yandex_gpt_response(user_text, chat_id, is_suicide=False)
     bot_response = clean_response(bot_response)
 
     add_to_history(chat_id, bot_response, is_user=False)
@@ -325,10 +369,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = update.message.caption if update.message.caption else ""
 
     if caption:
+        # Проверяем фото с подписью на суицид
+        if detect_suicide_risk(caption):
+            bot_response = get_suicide_response()
+            add_to_history(chat_id, f"[фото] {caption}", is_user=True)
+            add_to_history(chat_id, bot_response, is_user=False)
+            await update.message.reply_text(bot_response)
+            return
+
         add_to_history(chat_id, f"[фото] {caption}", is_user=True)
-        response = get_yandex_gpt_response(caption, chat_id)
+        response = get_yandex_gpt_response(caption, chat_id, is_suicide=False)
     else:
-        response = "о круто, расскажешь по подробнее, что на фотке?"
+        response = "красивое фото 👋 расскажи, что там?"
 
     add_to_history(chat_id, response, is_user=False)
     await update.message.reply_text(response)
@@ -337,9 +389,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     response = random.choice([
-        "мили стикер :)",
-        "понял 🙏 расскажешь?",
-        "как настроение?"
+        "милый стикер 👋 как ты?",
+        "понял 🙏 рассказывай",
+        "😊 как настроение?"
     ])
 
     add_to_history(chat_id, "[стикер]", is_user=True)
@@ -356,10 +408,10 @@ def main():
         raise ValueError("❌ нет API_KEY!")
 
     print("✅ бот Хэлпер запускается...")
+    print("🔴 ВКЛЮЧЕНО РАСПОЗНАВАНИЕ СУИЦИДАЛЬНЫХ МЫСЛЕЙ")
+    print(f"📞 Телефон доверия: {HELP_LINE} ({HELP_LINE_DESC})")
     print("🧠 подростковый стиль общения")
     print("🚫 без шаблонных фраз")
-    print("🎲 повышенное разнообразие ответов")
-    print("💪 бот помнит свой гендер")
 
     from telegram.request import HTTPXRequest
     try:
